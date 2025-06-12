@@ -6,16 +6,37 @@ import JobDescriptionInput from "@/components/JobDescriptionInput";
 import OptimizationResults from "@/components/OptimizationResults";
 import HowItWorks from "@/components/HowItWorks";
 import PricingSection from "@/components/PricingSection";
+import { useState } from "react";
 
 const Index = () => {
+  const [resumeContent, setResumeContent] = useState("");
+  const [optimizationResults, setOptimizationResults] = useState(null);
+
+  const handleResumeProcessed = (content: string) => {
+    setResumeContent(content);
+    setOptimizationResults(null); // Reset results when new resume is uploaded
+  };
+
+  const handleOptimizationComplete = (results: any) => {
+    setOptimizationResults(results);
+  };
+
   return (
     <div className="min-h-screen bg-white">
       <Navigation />
       <HeroSection />
       <HowItWorks />
-      <ResumeUpload />
-      <JobDescriptionInput />
-      <OptimizationResults />
+      <ResumeUpload onResumeProcessed={handleResumeProcessed} />
+      <JobDescriptionInput 
+        resumeContent={resumeContent}
+        onOptimizationComplete={handleOptimizationComplete}
+        disabled={!resumeContent}
+      />
+      <OptimizationResults 
+        results={optimizationResults}
+        originalResume={resumeContent}
+        visible={!!optimizationResults}
+      />
       <PricingSection />
       
       {/* Footer */}

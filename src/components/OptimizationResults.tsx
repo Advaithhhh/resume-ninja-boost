@@ -3,41 +3,39 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Download, CheckCircle, XCircle, AlertCircle, TrendingUp } from "lucide-react";
+import { Download, CheckCircle, XCircle, AlertCircle, TrendingUp, Sparkles } from "lucide-react";
 import { useState, useEffect } from "react";
 
-const OptimizationResults = () => {
+interface OptimizationResultsProps {
+  results: any;
+  originalResume: string;
+  visible?: boolean;
+}
+
+const OptimizationResults = ({ results, originalResume, visible = false }: OptimizationResultsProps) => {
   const [atsScore, setAtsScore] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate loading and score animation
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-      const interval = setInterval(() => {
-        setAtsScore((prev) => {
-          if (prev >= 87) {
-            clearInterval(interval);
-            return 87;
-          }
-          return prev + 1;
-        });
-      }, 20);
-    }, 1000);
+    if (results && visible) {
+      setIsLoading(true);
+      const timer = setTimeout(() => {
+        setIsLoading(false);
+        const targetScore = results.atsScore || 75;
+        const interval = setInterval(() => {
+          setAtsScore((prev) => {
+            if (prev >= targetScore) {
+              clearInterval(interval);
+              return targetScore;
+            }
+            return prev + 1;
+          });
+        }, 20);
+      }, 1000);
 
-    return () => clearTimeout(timer);
-  }, []);
-
-  const matchedKeywords = [
-    { keyword: "React", status: "matched" },
-    { keyword: "TypeScript", status: "matched" },
-    { keyword: "JavaScript", status: "matched" },
-    { keyword: "CSS", status: "added" },
-    { keyword: "Git", status: "matched" },
-    { keyword: "Responsive Design", status: "added" },
-    { keyword: "Problem Solving", status: "missing" },
-    { keyword: "Agile", status: "missing" },
-  ];
+      return () => clearTimeout(timer);
+    }
+  }, [results, visible]);
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-green-600";
@@ -50,6 +48,49 @@ const OptimizationResults = () => {
     if (score >= 60) return "from-yellow-500 to-orange-500";
     return "from-red-500 to-pink-500";
   };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "matched":
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case "added":
+        return <Sparkles className="h-4 w-4 text-blue-500" />;
+      case "missing":
+        return <XCircle className="h-4 w-4 text-red-500" />;
+      default:
+        return <AlertCircle className="h-4 w-4 text-gray-500" />;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "matched":
+        return <Badge variant="secondary" className="bg-green-100 text-green-800">Matched</Badge>;
+      case "added":
+        return <Badge variant="secondary" className="bg-blue-100 text-blue-800">Added</Badge>;
+      case "missing":
+        return <Badge variant="secondary" className="bg-red-100 text-red-800">Missing</Badge>;
+      default:
+        return <Badge variant="secondary">Unknown</Badge>;
+    }
+  };
+
+  if (!visible || !results) {
+    return (
+      <section className="py-16 px-4 sm:px-6 lg:px-8 bg-gray-50 opacity-50">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              Optimization Results
+            </h2>
+            <p className="text-lg text-gray-600">
+              Complete the analysis above to see your results
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="py-16 px-4 sm:px-6 lg:px-8 bg-gray-50">
@@ -126,41 +167,24 @@ const OptimizationResults = () => {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid sm:grid-cols-2 gap-4">
-                {matchedKeywords.map((item, index) => (
+              <div className="grid sm:grid-cols-2 gap-4 max-h-80 overflow-y-auto">
+                {results.keywordAnalysis?.map((item: any, index: number) => (
                   <div 
                     key={index}
                     className="flex items-center justify-between p-3 rounded-lg border bg-white hover:shadow-sm transition-shadow"
                   >
                     <span className="font-medium text-gray-900">{item.keyword}</span>
                     <div className="flex items-center space-x-2">
-                      {item.status === "matched" && (
-                        <>
-                          <CheckCircle className="h-4 w-4 text-green-500" />
-                          <Badge variant="secondary" className="bg-green-100 text-green-800">
-                            Matched
-                          </Badge>
-                        </>
-                      )}
-                      {item.status === "added" && (
-                        <>
-                          <AlertCircle className="h-4 w-4 text-blue-500" />
-                          <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                            Added
-                          </Badge>
-                        </>
-                      )}
-                      {item.status === "missing" && (
-                        <>
-                          <XCircle className="h-4 w-4 text-red-500" />
-                          <Badge variant="secondary" className="bg-red-100 text-red-800">
-                            Missing
-                          </Badge>
-                        </>
-                      )}
+                      {getStatusIcon(item.status)}
+                      {getStatusBadge(item.status)}
                     </div>
                   </div>
-                ))}
+                )) || (
+                  <div className="col-span-2 text-center text-gray-500 py-8">
+                    <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                    <p>No keyword analysis available</p>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -173,18 +197,9 @@ const OptimizationResults = () => {
               <CardTitle className="text-gray-600">Original Resume</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="bg-gray-100 rounded-lg p-6 min-h-[400px] text-sm">
-                <div className="space-y-4 text-gray-700">
-                  <h3 className="font-bold text-lg">John Smith</h3>
-                  <p>Frontend Developer</p>
-                  <div>
-                    <h4 className="font-semibold mb-2">Experience</h4>
-                    <p>Worked with React and JavaScript to build web applications.</p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold mb-2">Skills</h4>
-                    <p>React, JavaScript, HTML</p>
-                  </div>
+              <div className="bg-gray-100 rounded-lg p-6 min-h-[400px] text-sm max-h-[400px] overflow-y-auto">
+                <div className="whitespace-pre-wrap text-gray-700">
+                  {originalResume || "Original resume content will appear here"}
                 </div>
               </div>
             </CardContent>
@@ -198,33 +213,93 @@ const OptimizationResults = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="bg-blue-50 rounded-lg p-6 min-h-[400px] text-sm">
+              <div className="bg-blue-50 rounded-lg p-6 min-h-[400px] text-sm max-h-[400px] overflow-y-auto">
                 <div className="space-y-4 text-gray-700">
-                  <h3 className="font-bold text-lg">John Smith</h3>
-                  <p>Frontend Developer & React Specialist</p>
-                  <div>
-                    <h4 className="font-semibold mb-2">Experience</h4>
-                    <p>Developed responsive web applications using <strong>React</strong>, <strong>TypeScript</strong>, and <strong>JavaScript</strong>. Implemented <strong>CSS</strong> frameworks for optimal user experience.</p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold mb-2">Technical Skills</h4>
-                    <p><strong>React</strong>, <strong>TypeScript</strong>, <strong>JavaScript</strong>, <strong>CSS</strong>, <strong>Git</strong>, <strong>Responsive Design</strong>, HTML</p>
-                  </div>
+                  {results.optimizedSections ? (
+                    <>
+                      {results.optimizedSections.summary && (
+                        <div>
+                          <h4 className="font-semibold mb-2 text-primary">Professional Summary</h4>
+                          <p className="whitespace-pre-wrap">{results.optimizedSections.summary}</p>
+                        </div>
+                      )}
+                      {results.optimizedSections.skills && (
+                        <div>
+                          <h4 className="font-semibold mb-2 text-primary">Technical Skills</h4>
+                          <p className="whitespace-pre-wrap">{results.optimizedSections.skills}</p>
+                        </div>
+                      )}
+                      {results.optimizedSections.experience && (
+                        <div>
+                          <h4 className="font-semibold mb-2 text-primary">Experience</h4>
+                          <p className="whitespace-pre-wrap">{results.optimizedSections.experience}</p>
+                        </div>
+                      )}
+                      {results.rawAnalysis && (
+                        <div>
+                          <h4 className="font-semibold mb-2 text-primary">AI Analysis</h4>
+                          <p className="whitespace-pre-wrap text-xs">{results.rawAnalysis}</p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-center text-gray-500 py-8">
+                      <Sparkles className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                      <p>Optimized content will appear here</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
+        {/* Suggestions */}
+        {results.suggestions && results.suggestions.length > 0 && (
+          <Card className="mt-8 shadow-lg">
+            <CardHeader>
+              <CardTitle>Optimization Suggestions</CardTitle>
+              <CardDescription>
+                Key improvements to boost your ATS score
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {results.suggestions.map((suggestion: any, index: number) => (
+                  <div key={index} className="p-4 border rounded-lg bg-blue-50">
+                    <div className="flex items-start space-x-3">
+                      <Sparkles className="h-5 w-5 text-blue-500 mt-0.5" />
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-900 capitalize">{suggestion.type} Enhancement</h4>
+                        <p className="text-sm text-gray-600 mt-1">{suggestion.reason}</p>
+                        {suggestion.current && suggestion.suggested && (
+                          <div className="mt-2 text-xs">
+                            <p><span className="font-medium">Current:</span> {suggestion.current}</p>
+                            <p><span className="font-medium">Suggested:</span> {suggestion.suggested}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Download Button */}
         <div className="text-center mt-8">
           <Button 
             size="lg"
             className="gradient-primary hover:scale-105 transition-transform shadow-lg"
+            onClick={() => alert('Sign in required to download optimized resume')}
           >
             <Download className="mr-2 h-5 w-5" />
             Download Optimized Resume
           </Button>
+          <p className="text-sm text-gray-500 mt-2">
+            Sign in to download your optimized resume
+          </p>
         </div>
       </div>
     </section>
