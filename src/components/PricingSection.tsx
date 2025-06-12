@@ -40,7 +40,7 @@ const PricingSection = () => {
     },
     {
       name: "Professional",
-      price: "$19",
+      price: "$25",
       period: "month",
       description: "For professionals seeking career growth",
       features: [

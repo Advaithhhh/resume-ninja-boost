@@ -2,7 +2,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Textarea } from "@/components/ui/textarea";
 import { Upload, FileText, Check } from "lucide-react";
 import { useState } from "react";
 
@@ -10,7 +9,6 @@ const ResumeUpload = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
-  const [resumeText, setResumeText] = useState("");
 
   const handleFileUpload = () => {
     setIsUploading(true);
@@ -36,17 +34,16 @@ const ResumeUpload = () => {
             Upload Your Resume
           </h2>
           <p className="text-lg text-gray-600">
-            Choose your preferred method to get started with optimization
+            Upload your resume to get started with AI optimization
           </p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* File Upload */}
+        <div className="max-w-2xl mx-auto">
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Upload className="h-5 w-5 text-primary" />
-                <span>Upload PDF</span>
+                <span>Upload PDF Resume</span>
               </CardTitle>
               <CardDescription>
                 Drag and drop your resume file or click to browse
@@ -90,33 +87,6 @@ const ResumeUpload = () => {
                   Select File
                 </Button>
               )}
-            </CardContent>
-          </Card>
-
-          {/* Text Input */}
-          <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <FileText className="h-5 w-5 text-accent" />
-                <span>Paste Resume Text</span>
-              </CardTitle>
-              <CardDescription>
-                Copy and paste your resume content directly
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                placeholder="Paste your resume content here..."
-                className="min-h-[200px] resize-none border-gray-300 focus:border-primary"
-                value={resumeText}
-                onChange={(e) => setResumeText(e.target.value)}
-              />
-              <Button 
-                className="w-full mt-4 gradient-accent hover:scale-105 transition-transform"
-                disabled={!resumeText.trim()}
-              >
-                Process Text
-              </Button>
             </CardContent>
           </Card>
         </div>
