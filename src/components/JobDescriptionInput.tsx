@@ -2,11 +2,11 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Target, HelpCircle, Sparkles, AlertCircle } from "lucide-react";
+import { Target, HelpCircle, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface JobDescriptionInputProps {
   resumeContent: string;
@@ -17,101 +17,16 @@ interface JobDescriptionInputProps {
 const JobDescriptionInput = ({ resumeContent, onOptimizationComplete, disabled = false }: JobDescriptionInputProps) => {
   const [jobDescription, setJobDescription] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [showApiInput, setShowApiInput] = useState(false);
   const { toast } = useToast();
 
-  const analyzeResumeAndJob = async (resume: string, jobDesc: string, openaiApiKey: string) => {
+  const analyzeResumeAndJob = async (resume: string, jobDesc: string) => {
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'system',
-              content: `You are an expert ATS (Applicant Tracking System) analyzer. Given a resume and job description, analyze the match and provide optimization suggestions. 
-
-Return a JSON response with this exact structure:
-{
-  "atsScore": number (0-100),
-  "keywordAnalysis": [
-    {
-      "keyword": "string",
-      "status": "matched" | "missing" | "added",
-      "importance": "high" | "medium" | "low"
-    }
-  ],
-  "suggestions": [
-    {
-      "type": "skill" | "experience" | "format",
-      "current": "string",
-      "suggested": "string",
-      "reason": "string"
-    }
-  ],
-  "optimizedSections": {
-    "summary": "string",
-    "skills": "string",
-    "experience": "string"
-  }
-}`
-            },
-            {
-              role: 'user',
-              content: `Please analyze this resume against the job description and provide optimization suggestions.
-
-RESUME:
-${resume}
-
-JOB DESCRIPTION:
-${jobDesc}
-
-Provide a detailed ATS analysis with keyword matching, score calculation, and specific optimization suggestions.`
-            }
-          ],
-          max_tokens: 2000,
-          temperature: 0.3
-        }),
+      const { data, error } = await supabase.functions.invoke('analyze-resume', {
+        body: { resume, jobDescription: jobDesc }
       });
 
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const analysisText = data.choices[0].message.content;
-      
-      // Try to parse JSON from the response
-      try {
-        const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          return JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error('No JSON found in response');
-        }
-      } catch (parseError) {
-        // Fallback: create a structured response from the text
-        return {
-          atsScore: 75,
-          keywordAnalysis: [
-            { keyword: "Analysis completed", status: "matched", importance: "high" }
-          ],
-          suggestions: [
-            { type: "format", current: "Original resume", suggested: "Optimized resume", reason: "AI analysis completed" }
-          ],
-          optimizedSections: {
-            summary: "Professional summary optimized for ATS",
-            skills: "Technical skills enhanced",
-            experience: "Experience section improved"
-          },
-          rawAnalysis: analysisText
-        };
-      }
+      if (error) throw error;
+      return data;
     } catch (error) {
       console.error('Error analyzing resume:', error);
       throw error;
@@ -137,20 +52,10 @@ Provide a detailed ATS analysis with keyword matching, score calculation, and sp
       return;
     }
 
-    if (!apiKey.trim()) {
-      setShowApiInput(true);
-      toast({
-        title: "API Key Required",
-        description: "Please enter your OpenAI API key to perform analysis.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setIsAnalyzing(true);
 
     try {
-      const result = await analyzeResumeAndJob(resumeContent, jobDescription, apiKey);
+      const result = await analyzeResumeAndJob(resumeContent, jobDescription);
       onOptimizationComplete(result);
       
       toast({
@@ -160,7 +65,7 @@ Provide a detailed ATS analysis with keyword matching, score calculation, and sp
     } catch (error) {
       toast({
         title: "Analysis Failed",
-        description: "Failed to analyze the resume. Please check your API key and try again.",
+        description: "Failed to analyze the resume. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -196,38 +101,6 @@ Provide a detailed ATS analysis with keyword matching, score calculation, and sp
             Help our AI understand what employers are looking for
           </p>
         </div>
-
-        {showApiInput && (
-          <Card className="max-w-2xl mx-auto mb-6 border-orange-200 bg-orange-50">
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2 text-orange-800">
-                <AlertCircle className="h-5 w-5" />
-                <span>OpenAI API Key Required</span>
-              </CardTitle>
-              <CardDescription className="text-orange-700">
-                Enter your OpenAI API key to perform resume analysis
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <Input
-                  type="password"
-                  placeholder="sk-..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="border-orange-300 focus:border-orange-500"
-                />
-                <Button 
-                  onClick={() => setShowApiInput(false)}
-                  disabled={!apiKey.trim()}
-                  className="w-full gradient-primary"
-                >
-                  Continue with API Key
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         <Card className="shadow-lg border-0 bg-white">
           <CardHeader className="gradient-primary text-white rounded-t-lg">

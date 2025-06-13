@@ -2,10 +2,10 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Input } from "@/components/ui/input";
-import { Upload, FileText, Check, AlertCircle } from "lucide-react";
+import { Upload, FileText, Check } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ResumeUploadProps {
   onResumeProcessed: (content: string) => void;
@@ -15,11 +15,9 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [showApiInput, setShowApiInput] = useState(false);
   const { toast } = useToast();
 
-  const extractTextFromPDF = async (file: File, openaiApiKey: string): Promise<string> => {
+  const extractTextFromPDF = async (file: File): Promise<string> => {
     try {
       // Convert PDF to base64
       const base64 = await new Promise<string>((resolve) => {
@@ -31,41 +29,12 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
         reader.readAsDataURL(file);
       });
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Please extract all the text content from this PDF resume. Return only the extracted text content, preserving the structure and formatting as much as possible.'
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:application/pdf;base64,${base64}`
-                  }
-                }
-              ]
-            }
-          ],
-          max_tokens: 2000
-        }),
+      const { data, error } = await supabase.functions.invoke('extract-pdf-text', {
+        body: { base64Pdf: base64 }
       });
 
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.choices[0].message.content;
+      if (error) throw error;
+      return data.extractedText;
     } catch (error) {
       console.error('Error extracting text from PDF:', error);
       throw error;
@@ -73,16 +42,6 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
   };
 
   const handleFileUpload = async (file?: File) => {
-    if (!apiKey.trim()) {
-      setShowApiInput(true);
-      toast({
-        title: "API Key Required",
-        description: "Please enter your OpenAI API key to process the resume.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     let selectedFile = file;
     if (!selectedFile) {
       const input = document.createElement('input');
@@ -131,7 +90,7 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
         });
       }, 200);
 
-      const extractedText = await extractTextFromPDF(selectedFile, apiKey);
+      const extractedText = await extractTextFromPDF(selectedFile);
       
       clearInterval(progressInterval);
       setUploadProgress(100);
@@ -149,7 +108,7 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
       setUploadProgress(0);
       toast({
         title: "Processing Failed",
-        description: "Failed to process the PDF. Please check your API key and try again.",
+        description: "Failed to process the PDF. Please try again.",
         variant: "destructive",
       });
     }
@@ -178,38 +137,6 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
             Upload your resume to get started with AI optimization
           </p>
         </div>
-
-        {showApiInput && !uploadComplete && (
-          <Card className="max-w-2xl mx-auto mb-6 border-orange-200 bg-orange-50">
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2 text-orange-800">
-                <AlertCircle className="h-5 w-5" />
-                <span>OpenAI API Key Required</span>
-              </CardTitle>
-              <CardDescription className="text-orange-700">
-                Enter your OpenAI API key to parse PDF content. Get one at openai.com
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <Input
-                  type="password"
-                  placeholder="sk-..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="border-orange-300 focus:border-orange-500"
-                />
-                <Button 
-                  onClick={() => setShowApiInput(false)}
-                  disabled={!apiKey.trim()}
-                  className="w-full gradient-primary"
-                >
-                  Continue with API Key
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         <div className="max-w-2xl mx-auto">
           <Card className="hover:shadow-lg transition-shadow">
