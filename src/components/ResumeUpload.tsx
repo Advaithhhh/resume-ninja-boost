@@ -1,4 +1,3 @@
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -8,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ResumeUploadProps {
-  onResumeProcessed: (content: string, readable?: string) => void;
+  onResumeProcessed: (content: string) => void;
 }
 
 const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {

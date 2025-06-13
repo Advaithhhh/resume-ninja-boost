@@ -10,12 +10,10 @@ import { useState } from "react";
 
 const Index = () => {
   const [resumeContent, setResumeContent] = useState("");
-  const [readableResumeContent, setReadableResumeContent] = useState("");
   const [optimizationResults, setOptimizationResults] = useState(null);
 
-  const handleResumeProcessed = (content: string, readable?: string) => {
+  const handleResumeProcessed = (content: string) => {
     setResumeContent(content);
-    setReadableResumeContent(readable || content);
     setOptimizationResults(null); // Reset results when new resume is uploaded
   };
 
@@ -36,7 +34,7 @@ const Index = () => {
       />
       <OptimizationResults 
         results={optimizationResults}
-        originalResume={readableResumeContent}
+        originalResume={resumeContent}
         visible={!!optimizationResults}
       />
       <PricingSection />

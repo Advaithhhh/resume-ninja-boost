@@ -22,7 +22,6 @@ serve(async (req) => {
     const pdfText = new TextDecoder('latin1').decode(pdfBytes);
     
     let extractedText = '';
-    let cleanedText = '';
     
     // Method 1: Extract text from PDF text objects (BT...ET blocks)
     const textBlocks = pdfText.match(/BT\s+(.*?)\s+ET/gs);
@@ -82,92 +81,40 @@ serve(async (req) => {
       }
     }
     
-    // Clean up the extracted text for better readability
-    if (extractedText.trim()) {
-      cleanedText = extractedText
-        .replace(/\s+/g, ' ') // Normalize whitespace
-        .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII
-        .replace(/\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\b/g, '$1 $2') // Fix name spacing
-        .replace(/\b(B\.?Tech|BTech|B\.?E\.?|BE|B\.?Sc|BSc|B\.?A\.?|BA|M\.?Tech|MTech|M\.?E\.?|ME|M\.?Sc|MSc|MBA|PhD|Ph\.?D\.?)\b/gi, (match) => {
-          // Standardize education terms
-          const term = match.toLowerCase().replace(/\./g, '');
-          const educationMap = {
-            'btech': 'B.Tech',
-            'be': 'B.E.',
-            'bsc': 'B.Sc',
-            'ba': 'B.A',
-            'mtech': 'M.Tech',
-            'me': 'M.E.',
-            'msc': 'M.Sc',
-            'mba': 'MBA',
-            'phd': 'Ph.D'
-          };
-          return educationMap[term] || match;
-        })
-        .replace(/(\d{4})\s*-\s*(\d{4}|\w+)/g, '$1-$2') // Fix date ranges
-        .replace(/([a-z])([A-Z])/g, '$1 $2') // Add space between camelCase
-        .trim();
+    // Method 4: Fallback - extract any readable ASCII text
+    if (!extractedText.trim()) {
+      // Look for sequences of readable characters
+      const readableChunks = pdfText.match(/[a-zA-Z][a-zA-Z0-9\s.,;:!?@#$%^&*()\-_+={}[\]|\\<>/~`"']{10,}/g);
+      if (readableChunks) {
+        extractedText = readableChunks
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
     }
     
-    // Create a more readable version for display
-    const readableText = cleanedText || extractedText;
-    const formattedText = readableText
-      .split(/\s+/)
-      .reduce((acc, word, index, array) => {
-        acc += word;
-        
-        // Add line breaks for better formatting
-        if (index < array.length - 1) {
-          const nextWord = array[index + 1];
-          // Add line break after email, phone, or address patterns
-          if (/[@.]/.test(word) && /^[A-Z]/.test(nextWord)) {
-            acc += '\n';
-          }
-          // Add line break before section headers (capitalized words)
-          else if (/^[A-Z][A-Z\s]+$/.test(nextWord) && nextWord.length > 3) {
-            acc += '\n\n';
-          }
-          // Add line break after years or GPA
-          else if (/(\d{4}|GPA|CGPA)/i.test(word) && /^[A-Z]/.test(nextWord)) {
-            acc += '\n';
-          }
-          else {
-            acc += ' ';
-          }
-        }
-        
-        return acc;
-      }, '');
+    // Clean up the extracted text
+    extractedText = extractedText
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII
+      .trim();
     
     // Final validation
-    if (!cleanedText || cleanedText.length < 50) {
-      const fallbackText = "Unable to extract readable text from this PDF. The PDF may contain scanned images instead of selectable text, or it may be password-protected. Please try uploading a PDF with selectable text content.";
-      
-      return new Response(JSON.stringify({ 
-        extractedText: fallbackText,
-        readableText: fallbackText 
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    if (!extractedText || extractedText.length < 50) {
+      extractedText = "Unable to extract readable text from this PDF. The PDF may contain scanned images instead of selectable text, or it may be password-protected. Please try uploading a PDF with selectable text content.";
     }
 
-    console.log('Extracted text length:', cleanedText.length);
-    console.log('First 200 characters:', cleanedText.substring(0, 200));
+    console.log('Extracted text length:', extractedText.length);
+    console.log('First 200 characters:', extractedText.substring(0, 200));
 
-    return new Response(JSON.stringify({ 
-      extractedText: cleanedText.trim(),
-      readableText: formattedText.trim()
-    }), {
+    return new Response(JSON.stringify({ extractedText: extractedText.trim() }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
     console.error('Error in extract-pdf-text function:', error);
-    const errorText = "PDF processing failed. Please try uploading a different PDF file or ensure your PDF contains selectable text (not scanned images).";
-    
     return new Response(JSON.stringify({ 
       error: "Failed to process PDF. Please ensure you're uploading a valid PDF file with selectable text content.",
-      extractedText: errorText,
-      readableText: errorText
+      extractedText: "PDF processing failed. Please try uploading a different PDF file or ensure your PDF contains selectable text (not scanned images)."
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
