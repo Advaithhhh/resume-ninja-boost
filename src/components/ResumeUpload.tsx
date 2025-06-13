@@ -1,8 +1,7 @@
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Upload, FileText, Check } from "lucide-react";
+import { Upload, FileText, Check, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,7 +32,18 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
         body: { base64Pdf: base64 }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase function error:', error);
+        throw new Error('Failed to process PDF');
+      }
+
+      // Handle both success and error cases from the function
+      if (data.error) {
+        console.error('PDF extraction error:', data.error);
+        // Still return the extracted text if available, even with errors
+        return data.extractedText || "Failed to extract text from PDF";
+      }
+
       return data.extractedText;
     } catch (error) {
       console.error('Error extracting text from PDF:', error);
@@ -99,16 +109,25 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
       
       onResumeProcessed(extractedText);
       
-      toast({
-        title: "Resume Processed Successfully",
-        description: "Your resume has been parsed and is ready for optimization.",
-      });
+      // Show different toast messages based on extraction success
+      if (extractedText.includes("Unable to extract text") || extractedText.includes("PDF processing failed")) {
+        toast({
+          title: "PDF Processed with Issues",
+          description: "The PDF was processed but text extraction had some issues. You may need to try a different PDF file.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Resume Processed Successfully",
+          description: "Your resume has been parsed and is ready for optimization.",
+        });
+      }
     } catch (error) {
       setIsUploading(false);
       setUploadProgress(0);
       toast({
         title: "Processing Failed",
-        description: "Failed to process the PDF. Please try again.",
+        description: "Failed to process the PDF. Please ensure it's a valid PDF with selectable text.",
         variant: "destructive",
       });
     }
@@ -146,7 +165,7 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
                 <span>Upload PDF Resume</span>
               </CardTitle>
               <CardDescription>
-                Drag and drop your resume file or click to browse
+                Drag and drop your resume file or click to browse. Make sure your PDF contains selectable text (not scanned images).
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -163,7 +182,7 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
                 {uploadComplete ? (
                   <div className="animate-scale-in">
                     <Check className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                    <p className="text-green-700 font-semibold">Resume uploaded and processed successfully!</p>
+                    <p className="text-green-700 font-semibold">Resume uploaded and processed!</p>
                     <p className="text-sm text-green-600 mt-2">Now add your target job description below</p>
                   </div>
                 ) : (
@@ -171,6 +190,10 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
                     <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <p className="text-gray-600 mb-2">Click to upload or drag and drop</p>
                     <p className="text-sm text-gray-500">PDF files only, max 5MB</p>
+                    <div className="flex items-center justify-center mt-2 text-xs text-amber-600">
+                      <AlertCircle className="h-3 w-3 mr-1" />
+                      <span>Ensure PDF has selectable text (not scanned images)</span>
+                    </div>
                   </div>
                 )}
               </div>
