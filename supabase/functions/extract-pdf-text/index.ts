@@ -18,22 +18,29 @@ serve(async (req) => {
     // Convert base64 to Uint8Array
     const pdfBytes = Uint8Array.from(atob(base64Pdf), c => c.charCodeAt(0));
     
-    // Basic PDF text extraction
-    // This is a simplified approach - for production, you'd want a more robust PDF parser
-    const pdfText = new TextDecoder().decode(pdfBytes);
+    // Convert to string for text extraction
+    const pdfText = new TextDecoder('latin1').decode(pdfBytes);
     
-    // Try to extract readable text from PDF structure
     let extractedText = '';
     
-    // Look for text content between stream objects
-    const textMatches = pdfText.match(/BT[\s\S]*?ET/g);
-    if (textMatches) {
-      for (const match of textMatches) {
-        // Extract text from PDF text objects
-        const textContent = match.match(/\((.*?)\)/g);
-        if (textContent) {
-          for (const text of textContent) {
-            const cleanText = text.slice(1, -1); // Remove parentheses
+    // Method 1: Extract text from PDF text objects (BT...ET blocks)
+    const textBlocks = pdfText.match(/BT\s+(.*?)\s+ET/gs);
+    if (textBlocks) {
+      for (const block of textBlocks) {
+        // Look for text strings in parentheses or brackets
+        const textStrings = block.match(/\((.*?)\)/g) || block.match(/\[(.*?)\]/g);
+        if (textStrings) {
+          for (const str of textStrings) {
+            let cleanText = str.slice(1, -1); // Remove parentheses/brackets
+            // Clean up PDF escape sequences
+            cleanText = cleanText
+              .replace(/\\n/g, ' ')
+              .replace(/\\r/g, ' ')
+              .replace(/\\t/g, ' ')
+              .replace(/\\\(/g, '(')
+              .replace(/\\\)/g, ')')
+              .replace(/\\\\/g, '\\');
+            
             if (cleanText.length > 1 && /[a-zA-Z]/.test(cleanText)) {
               extractedText += cleanText + ' ';
             }
@@ -42,22 +49,63 @@ serve(async (req) => {
       }
     }
     
-    // Fallback: try to extract any readable text
+    // Method 2: Look for Tj and TJ operators (text showing operators)
     if (!extractedText.trim()) {
-      const readableText = pdfText
-        .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII
-        .replace(/\s+/g, ' ') // Normalize whitespace
-        .split(' ')
-        .filter(word => word.length > 2 && /[a-zA-Z]/.test(word))
-        .join(' ');
-      
-      extractedText = readableText;
+      const tjMatches = pdfText.match(/\((.*?)\)\s*Tj/g);
+      if (tjMatches) {
+        for (const match of tjMatches) {
+          const text = match.match(/\((.*?)\)/)[1];
+          if (text && text.length > 1 && /[a-zA-Z]/.test(text)) {
+            extractedText += text + ' ';
+          }
+        }
+      }
     }
     
-    // If we still don't have meaningful text, return a helpful message
-    if (!extractedText.trim() || extractedText.length < 50) {
-      extractedText = "Unable to extract text from this PDF. Please ensure the PDF contains selectable text (not just scanned images). You may need to use a PDF with actual text content rather than scanned images.";
+    // Method 3: Extract from TJ arrays
+    if (!extractedText.trim()) {
+      const tjArrayMatches = pdfText.match(/\[(.*?)\]\s*TJ/g);
+      if (tjArrayMatches) {
+        for (const match of tjArrayMatches) {
+          const content = match.match(/\[(.*?)\]/)[1];
+          const textParts = content.match(/\((.*?)\)/g);
+          if (textParts) {
+            for (const part of textParts) {
+              const text = part.slice(1, -1);
+              if (text && text.length > 1 && /[a-zA-Z]/.test(text)) {
+                extractedText += text + ' ';
+              }
+            }
+          }
+        }
+      }
     }
+    
+    // Method 4: Fallback - extract any readable ASCII text
+    if (!extractedText.trim()) {
+      // Look for sequences of readable characters
+      const readableChunks = pdfText.match(/[a-zA-Z][a-zA-Z0-9\s.,;:!?@#$%^&*()\-_+={}[\]|\\<>/~`"']{10,}/g);
+      if (readableChunks) {
+        extractedText = readableChunks
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+    }
+    
+    // Clean up the extracted text
+    extractedText = extractedText
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII
+      .trim();
+    
+    // Final validation
+    if (!extractedText || extractedText.length < 50) {
+      extractedText = "Unable to extract readable text from this PDF. The PDF may contain scanned images instead of selectable text, or it may be password-protected. Please try uploading a PDF with selectable text content.";
+    }
+
+    console.log('Extracted text length:', extractedText.length);
+    console.log('First 200 characters:', extractedText.substring(0, 200));
 
     return new Response(JSON.stringify({ extractedText: extractedText.trim() }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
