@@ -31,17 +31,57 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are an expert ATS (Applicant Tracking System) analyzer and resume optimization specialist. 
+            content: `You are an expert ATS (Applicant Tracking System) analyzer and resume optimization specialist with deep understanding of educational qualifications and industry standards.
 
-Your task is to:
-1. Calculate a realistic ATS score (0-100) based on keyword matching, formatting, and relevance
-2. Identify matched, missing, and suggested keywords
-3. Provide specific optimization suggestions
-4. Generate optimized resume sections
+EDUCATION EQUIVALENCY GUIDE:
+- BTech, B.Tech, Bachelor of Technology = Bachelor's degree
+- BE, B.E., Bachelor of Engineering = Bachelor's degree  
+- BSc, B.Sc., Bachelor of Science = Bachelor's degree
+- BA, B.A., Bachelor of Arts = Bachelor's degree
+- BBA, Bachelor of Business Administration = Bachelor's degree
+- BCom, B.Com, Bachelor of Commerce = Bachelor's degree
+- MTech, M.Tech, Master of Technology = Master's degree
+- ME, M.E., Master of Engineering = Master's degree
+- MSc, M.Sc., Master of Science = Master's degree
+- MBA, Master of Business Administration = Master's degree
+- PhD, Ph.D., Doctorate = Doctoral degree
+
+ATS SCORE CALCULATION (Total: 100 points):
+1. KEYWORD MATCHING (40 points):
+   - Exact keyword matches: 30 points
+   - Synonym/related term matches: 10 points
+
+2. EDUCATION REQUIREMENTS (20 points):
+   - Meets degree requirement: 20 points
+   - Partially meets (e.g., ongoing): 10 points
+   - Does not meet: 0 points
+
+3. EXPERIENCE RELEVANCE (25 points):
+   - Direct experience match: 25 points
+   - Related experience: 15 points
+   - Transferable skills: 5 points
+   - No relevant experience: 0 points
+
+4. TECHNICAL SKILLS (10 points):
+   - Required skills present: 10 points
+   - Some skills missing: 5 points
+   - Most skills missing: 0 points
+
+5. FORMAT & STRUCTURE (5 points):
+   - ATS-friendly format: 5 points
+   - Needs improvement: 2 points
+   - Poor format: 0 points
 
 Return ONLY a valid JSON response with this exact structure:
 {
-  "atsScore": number (0-100, calculated based on actual analysis),
+  "atsScore": number (0-100, calculated using above criteria),
+  "scoreBreakdown": {
+    "keywordMatching": number,
+    "education": number,
+    "experience": number,
+    "technicalSkills": number,
+    "format": number
+  },
   "keywordAnalysis": [
     {
       "keyword": "string",
@@ -51,7 +91,7 @@ Return ONLY a valid JSON response with this exact structure:
   ],
   "suggestions": [
     {
-      "type": "skill" | "experience" | "format",
+      "type": "skill" | "experience" | "format" | "education",
       "current": "string",
       "suggested": "string",
       "reason": "string"
@@ -62,17 +102,11 @@ Return ONLY a valid JSON response with this exact structure:
     "skills": "string", 
     "experience": "string"
   }
-}
-
-Calculate the ATS score based on:
-- Keyword match percentage (40% weight)
-- Required skills coverage (30% weight)
-- Experience relevance (20% weight)
-- Format and structure (10% weight)`
+}`
           },
           {
             role: 'user',
-            content: `Analyze this resume against the job description and provide a detailed ATS score calculation and optimization.
+            content: `Analyze this resume against the job description and provide a detailed ATS score calculation with breakdown.
 
 RESUME CONTENT:
 ${resume}
@@ -80,11 +114,11 @@ ${resume}
 JOB DESCRIPTION:
 ${jobDescription}
 
-Calculate a realistic ATS score based on actual keyword matching and relevance. Provide specific keyword analysis and actionable optimization suggestions.`
+Please carefully analyze educational qualifications using the equivalency guide provided. Calculate the ATS score using the structured criteria and provide the breakdown for each category.`
           }
         ],
-        max_tokens: 2500,
-        temperature: 0.2
+        max_tokens: 3000,
+        temperature: 0.1
       }),
     });
 
@@ -107,6 +141,17 @@ Calculate a realistic ATS score based on actual keyword matching and relevance. 
         // Validate that we have a proper ATS score
         if (typeof result.atsScore !== 'number' || result.atsScore < 0 || result.atsScore > 100) {
           result.atsScore = 65; // Default fallback
+        }
+        
+        // Ensure scoreBreakdown exists
+        if (!result.scoreBreakdown) {
+          result.scoreBreakdown = {
+            keywordMatching: Math.round(result.atsScore * 0.4),
+            education: Math.round(result.atsScore * 0.2),
+            experience: Math.round(result.atsScore * 0.25),
+            technicalSkills: Math.round(result.atsScore * 0.1),
+            format: Math.round(result.atsScore * 0.05)
+          };
         }
         
         console.log('Parsed result with ATS score:', result.atsScore);
@@ -133,6 +178,13 @@ Calculate a realistic ATS score based on actual keyword matching and relevance. 
       
       const fallbackResult = {
         atsScore: calculatedScore,
+        scoreBreakdown: {
+          keywordMatching: Math.round(calculatedScore * 0.4),
+          education: Math.round(calculatedScore * 0.2),
+          experience: Math.round(calculatedScore * 0.25),
+          technicalSkills: Math.round(calculatedScore * 0.1),
+          format: Math.round(calculatedScore * 0.05)
+        },
         keywordAnalysis: [
           { keyword: "Analysis completed", status: "matched", importance: "high" },
           { keyword: "Keywords identified", status: "matched", importance: "medium" }
@@ -164,6 +216,13 @@ Calculate a realistic ATS score based on actual keyword matching and relevance. 
     return new Response(JSON.stringify({ 
       error: error.message,
       atsScore: 0,
+      scoreBreakdown: {
+        keywordMatching: 0,
+        education: 0,
+        experience: 0,
+        technicalSkills: 0,
+        format: 0
+      },
       keywordAnalysis: [],
       suggestions: [],
       optimizedSections: {

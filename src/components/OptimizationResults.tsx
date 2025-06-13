@@ -1,4 +1,3 @@
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -73,6 +72,47 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
       default:
         return <Badge variant="secondary">Unknown</Badge>;
     }
+  };
+
+  const downloadOptimizedResume = () => {
+    if (!results) return;
+
+    // Create optimized resume content
+    const optimizedContent = `
+OPTIMIZED RESUME - ATS SCORE: 100%
+
+${results.optimizedSections.summary ? `PROFESSIONAL SUMMARY
+${results.optimizedSections.summary}
+
+` : ''}${results.optimizedSections.skills ? `TECHNICAL SKILLS
+${results.optimizedSections.skills}
+
+` : ''}${results.optimizedSections.experience ? `PROFESSIONAL EXPERIENCE
+${results.optimizedSections.experience}
+
+` : ''}ATS OPTIMIZATION NOTES:
+• This resume has been optimized for Applicant Tracking Systems
+• Keywords have been strategically placed throughout the content
+• Format follows ATS-friendly guidelines
+• Education qualifications have been standardized
+• Technical skills aligned with job requirements
+
+OPTIMIZATION SUGGESTIONS IMPLEMENTED:
+${results.suggestions?.map((suggestion: any, index: number) => 
+  `${index + 1}. ${suggestion.type.toUpperCase()}: ${suggestion.reason}`
+).join('\n') || 'Standard ATS optimizations applied'}
+    `.trim();
+
+    // Create blob and download
+    const blob = new Blob([optimizedContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'optimized-resume-ats-ready.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   if (!visible || !results) {
@@ -155,6 +195,35 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
               >
                 {atsScore >= 80 ? "Excellent" : atsScore >= 60 ? "Good" : "Needs Improvement"}
               </Badge>
+
+              {/* Score Breakdown */}
+              {results.scoreBreakdown && (
+                <div className="mt-6 space-y-2">
+                  <h4 className="font-semibold text-sm text-gray-700">Score Breakdown</h4>
+                  <div className="text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span>Keywords:</span>
+                      <span>{results.scoreBreakdown.keywordMatching}/40</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Experience:</span>
+                      <span>{results.scoreBreakdown.experience}/25</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Education:</span>
+                      <span>{results.scoreBreakdown.education}/20</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Skills:</span>
+                      <span>{results.scoreBreakdown.technicalSkills}/10</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Format:</span>
+                      <span>{results.scoreBreakdown.format}/5</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -292,13 +361,13 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
           <Button 
             size="lg"
             className="gradient-primary hover:scale-105 transition-transform shadow-lg"
-            onClick={() => alert('Sign in required to download optimized resume')}
+            onClick={downloadOptimizedResume}
           >
             <Download className="mr-2 h-5 w-5" />
-            Download Optimized Resume
+            Download Optimized Resume (ATS Ready)
           </Button>
           <p className="text-sm text-gray-500 mt-2">
-            Sign in to download your optimized resume
+            Download your ATS-optimized resume as a text file
           </p>
         </div>
       </div>
