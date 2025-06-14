@@ -1,3 +1,4 @@
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -57,20 +58,21 @@ serve(async (req) => {
   }
 
   try {
-    const { base64Pdf } = await req.json();
-    if (!base64Pdf) {
-      throw new Error("No base64Pdf provided in the request body.");
+    const { base64File, fileType } = await req.json();
+    if (!base64File) {
+      throw new Error("No base64File provided in the request body.");
     }
     
+    const mimeType = fileType || 'application/octet-stream';
     let extractedText = '';
 
     // Step 1: Directly use OCR for text extraction
-    console.log(`Starting OCR.space extraction...`);
+    console.log(`Starting OCR.space extraction for file type: ${mimeType}...`);
     try {
       const ocrApiKey = 'helloworld'; // Free public API key for ocr.space
       const formData = new FormData();
-      // The API can take the PDF directly as a base64 string
-      formData.append('base64Image', `data:application/pdf;base64,${base64Pdf}`);
+      // The API can take the file directly as a base64 string
+      formData.append('base64Image', `data:${mimeType};base64,${base64File}`);
       formData.append('apikey', ocrApiKey);
       formData.append('isOverlayRequired', 'false');
       formData.append('detectOrientation', 'true');
@@ -100,13 +102,13 @@ serve(async (req) => {
     } catch (ocrError) {
       console.error("Error during OCR extraction:", ocrError);
       // If OCR fails, we'll set a specific error message.
-      extractedText = "Failed to process PDF using OCR. The service may be unavailable or the file could be corrupted.";
+      extractedText = "Failed to process file using OCR. The service may be unavailable or the file could be corrupted.";
     }
 
 
     // Step 2: Final validation before returning
     if (!extractedText || extractedText.length < 50) { 
-      extractedText = "Unable to extract sufficient readable text from this PDF using OCR. It may be a very low-quality scan, password-protected, or in an unsupported format.";
+      extractedText = "Unable to extract sufficient readable text from this file using OCR. It may be a very low-quality scan, password-protected, or in an unsupported format.";
     }
 
     console.log('Final extracted text length:', extractedText.length);
@@ -116,10 +118,10 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in extract-pdf-text function:', error);
+    console.error('Error in extract-text function:', error);
     return new Response(JSON.stringify({ 
-      error: `Failed to process PDF: ${error.message}`,
-      extractedText: "PDF processing failed via OCR. Please ensure your PDF is not corrupted and is a clear scan."
+      error: `Failed to process file: ${error.message}`,
+      extractedText: "File processing failed via OCR. Please ensure your file is not corrupted and is readable."
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

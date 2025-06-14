@@ -17,66 +17,36 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
   const [fileName, setFileName] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const extractTextFromPDF = async (file: File): Promise<string> => {
+  const extractTextFromFile = async (file: File): Promise<string> => {
     try {
-      const base64 = await new Promise<string>((resolve) => {
+      const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
           const result = reader.result as string;
           resolve(result.split(',')[1]);
         };
+        reader.onerror = (error) => reject(error);
         reader.readAsDataURL(file);
       });
 
+      // The 'extract-pdf-text' function now acts as a generic OCR extractor
       const { data, error } = await supabase.functions.invoke('extract-pdf-text', {
-        body: { base64Pdf: base64 }
+        body: { base64File: base64, fileType: file.type || 'application/octet-stream' }
       });
 
       if (error) {
-        console.error('Supabase function error:', error);
-        throw new Error('Failed to process PDF');
+        console.error('Supabase function invocation error:', error);
+        throw new Error(`Failed to process file on server: ${file.name}`);
       }
 
       if (data.error) {
-        console.error('PDF extraction error:', data.error);
-        return data.extractedText || "Failed to extract text from PDF";
+        console.error(`File extraction error for ${file.name}:`, data.error);
+        return data.extractedText || `Failed to extract text from ${file.name}.`;
       }
 
       return data.extractedText;
     } catch (error) {
-      console.error('Error extracting text from PDF:', error);
-      throw error;
-    }
-  };
-
-  const extractTextFromDOCX = async (file: File): Promise<string> => {
-    try {
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          resolve(result.split(',')[1]);
-        };
-        reader.readAsDataURL(file);
-      });
-
-      const { data, error } = await supabase.functions.invoke('extract-docx-text', {
-        body: { base64File: base64 }
-      });
-
-      if (error) {
-        console.error('Supabase function error:', error);
-        throw new Error('Failed to process DOCX');
-      }
-
-      if (data.error) {
-        console.error('DOCX extraction error:', data.error);
-        return data.extractedText || "Failed to extract text from DOCX";
-      }
-
-      return data.extractedText;
-    } catch (error) {
-      console.error('Error extracting text from DOCX:', error);
+      console.error(`Error in extractTextFromFile for ${file.name}:`, error);
       throw error;
     }
   };
@@ -156,23 +126,26 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
       }, 200);
 
       let extractedText = '';
+      const fileType = selectedFile.type;
+      const fileName = selectedFile.name.toLowerCase();
 
-      if (selectedFile.type === 'application/pdf') {
-        extractedText = await extractTextFromPDF(selectedFile);
-      } else if (selectedFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
-                 selectedFile.name.toLowerCase().endsWith('.docx')) {
-        extractedText = await extractTextFromDOCX(selectedFile);
-      } else if (selectedFile.type === 'application/msword' || 
-                 selectedFile.name.toLowerCase().endsWith('.doc')) {
-        extractedText = await extractTextFromDOCX(selectedFile);
-      } else if (selectedFile.type === 'text/plain' || 
-                 selectedFile.name.toLowerCase().endsWith('.txt')) {
+      // All major document formats will now use the OCR-based function.
+      if (
+        fileType === 'application/pdf' ||
+        fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        fileName.endsWith('.docx') ||
+        fileType === 'application/msword' ||
+        fileName.endsWith('.doc') ||
+        fileType === 'text/rtf' ||
+        fileType === 'application/rtf' ||
+        fileName.endsWith('.rtf')
+      ) {
+        extractedText = await extractTextFromFile(selectedFile);
+      } else if (fileType === 'text/plain' || fileName.endsWith('.txt')) {
         extractedText = await extractTextFromPlainText(selectedFile);
-      } else if (selectedFile.type === 'text/rtf' || 
-                 selectedFile.type === 'application/rtf' || 
-                 selectedFile.name.toLowerCase().endsWith('.rtf')) {
-        // For RTF files, treat as plain text for now
-        extractedText = await extractTextFromPlainText(selectedFile);
+      } else {
+        // Fallback for file types that might not have a proper mime-type but have a supported extension
+        extractedText = await extractTextFromFile(selectedFile);
       }
       
       clearInterval(progressInterval);
