@@ -1,3 +1,4 @@
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -18,12 +19,11 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
 
   const extractTextFromPDF = async (file: File): Promise<string> => {
     try {
-      // Convert PDF to base64
       const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
         reader.onload = () => {
           const result = reader.result as string;
-          resolve(result.split(',')[1]); // Remove data:application/pdf;base64, prefix
+          resolve(result.split(',')[1]);
         };
         reader.readAsDataURL(file);
       });
@@ -37,10 +37,8 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
         throw new Error('Failed to process PDF');
       }
 
-      // Handle both success and error cases from the function
       if (data.error) {
         console.error('PDF extraction error:', data.error);
-        // Still return the extracted text if available, even with errors
         return data.extractedText || "Failed to extract text from PDF";
       }
 
@@ -51,12 +49,65 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
     }
   };
 
+  const extractTextFromDOCX = async (file: File): Promise<string> => {
+    try {
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]);
+        };
+        reader.readAsDataURL(file);
+      });
+
+      const { data, error } = await supabase.functions.invoke('extract-docx-text', {
+        body: { base64File: base64 }
+      });
+
+      if (error) {
+        console.error('Supabase function error:', error);
+        throw new Error('Failed to process DOCX');
+      }
+
+      if (data.error) {
+        console.error('DOCX extraction error:', data.error);
+        return data.extractedText || "Failed to extract text from DOCX";
+      }
+
+      return data.extractedText;
+    } catch (error) {
+      console.error('Error extracting text from DOCX:', error);
+      throw error;
+    }
+  };
+
+  const extractTextFromPlainText = async (file: File): Promise<string> => {
+    try {
+      const text = await file.text();
+      return text;
+    } catch (error) {
+      console.error('Error reading plain text file:', error);
+      throw error;
+    }
+  };
+
+  const getSupportedFileTypes = () => {
+    return {
+      'application/pdf': '.pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+      'application/msword': '.doc',
+      'text/plain': '.txt',
+      'text/rtf': '.rtf',
+      'application/rtf': '.rtf'
+    };
+  };
+
   const handleFileUpload = async (file?: File) => {
     let selectedFile = file;
     if (!selectedFile) {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.pdf';
+      input.accept = Object.values(getSupportedFileTypes()).join(',');
       input.onchange = (e) => {
         const files = (e.target as HTMLInputElement).files;
         if (files && files[0]) {
@@ -67,19 +118,21 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
       return;
     }
 
-    if (selectedFile.type !== 'application/pdf') {
+    const supportedTypes = getSupportedFileTypes();
+    if (!Object.keys(supportedTypes).includes(selectedFile.type) && 
+        !Object.values(supportedTypes).some(ext => selectedFile.name.toLowerCase().endsWith(ext))) {
       toast({
         title: "Invalid File Type",
-        description: "Please upload a PDF file only.",
+        description: "Please upload a PDF, DOCX, DOC, TXT, or RTF file.",
         variant: "destructive",
       });
       return;
     }
 
-    if (selectedFile.size > 5 * 1024 * 1024) { // 5MB limit
+    if (selectedFile.size > 10 * 1024 * 1024) { // 10MB limit
       toast({
         title: "File Too Large",
-        description: "Please upload a file smaller than 5MB.",
+        description: "Please upload a file smaller than 10MB.",
         variant: "destructive",
       });
       return;
@@ -89,7 +142,6 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
     setUploadProgress(0);
 
     try {
-      // Simulate progress while processing
       const progressInterval = setInterval(() => {
         setUploadProgress((prev) => {
           if (prev >= 90) {
@@ -100,7 +152,25 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
         });
       }, 200);
 
-      const extractedText = await extractTextFromPDF(selectedFile);
+      let extractedText = '';
+
+      if (selectedFile.type === 'application/pdf') {
+        extractedText = await extractTextFromPDF(selectedFile);
+      } else if (selectedFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+                 selectedFile.name.toLowerCase().endsWith('.docx')) {
+        extractedText = await extractTextFromDOCX(selectedFile);
+      } else if (selectedFile.type === 'application/msword' || 
+                 selectedFile.name.toLowerCase().endsWith('.doc')) {
+        extractedText = await extractTextFromDOCX(selectedFile);
+      } else if (selectedFile.type === 'text/plain' || 
+                 selectedFile.name.toLowerCase().endsWith('.txt')) {
+        extractedText = await extractTextFromPlainText(selectedFile);
+      } else if (selectedFile.type === 'text/rtf' || 
+                 selectedFile.type === 'application/rtf' || 
+                 selectedFile.name.toLowerCase().endsWith('.rtf')) {
+        // For RTF files, treat as plain text for now
+        extractedText = await extractTextFromPlainText(selectedFile);
+      }
       
       clearInterval(progressInterval);
       setUploadProgress(100);
@@ -109,11 +179,10 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
       
       onResumeProcessed(extractedText);
       
-      // Show different toast messages based on extraction success
-      if (extractedText.includes("Unable to extract text") || extractedText.includes("PDF processing failed")) {
+      if (extractedText.includes("Unable to extract text") || extractedText.includes("processing failed")) {
         toast({
-          title: "PDF Processed with Issues",
-          description: "The PDF was processed but text extraction had some issues. You may need to try a different PDF file.",
+          title: "File Processed with Issues",
+          description: "The file was processed but text extraction had some issues. You may need to try a different file.",
           variant: "destructive",
         });
       } else {
@@ -127,7 +196,7 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
       setUploadProgress(0);
       toast({
         title: "Processing Failed",
-        description: "Failed to process the PDF. Please ensure it's a valid PDF with selectable text.",
+        description: "Failed to process the file. Please ensure it's a valid document with readable text.",
         variant: "destructive",
       });
     }
@@ -162,10 +231,10 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Upload className="h-5 w-5 text-primary" />
-                <span>Upload PDF Resume</span>
+                <span>Upload Resume</span>
               </CardTitle>
               <CardDescription>
-                Drag and drop your resume file or click to browse. Make sure your PDF contains selectable text (not scanned images).
+                Drag and drop your resume file or click to browse. Supported formats: PDF, DOCX, DOC, TXT, RTF.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -189,10 +258,10 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
                   <div>
                     <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <p className="text-gray-600 mb-2">Click to upload or drag and drop</p>
-                    <p className="text-sm text-gray-500">PDF files only, max 5MB</p>
+                    <p className="text-sm text-gray-500">PDF, DOCX, DOC, TXT, RTF files, max 10MB</p>
                     <div className="flex items-center justify-center mt-2 text-xs text-amber-600">
                       <AlertCircle className="h-3 w-3 mr-1" />
-                      <span>Ensure PDF has selectable text (not scanned images)</span>
+                      <span>Ensure document contains readable text content</span>
                     </div>
                   </div>
                 )}
@@ -201,7 +270,7 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
               {isUploading && (
                 <div className="mt-4 animate-fade-in">
                   <Progress value={uploadProgress} className="w-full" />
-                  <p className="text-sm text-gray-600 mt-2">Processing PDF... {uploadProgress}%</p>
+                  <p className="text-sm text-gray-600 mt-2">Processing document... {uploadProgress}%</p>
                 </div>
               )}
               
