@@ -1,3 +1,4 @@
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // Import pdf.js library from esm.sh CDN for Deno compatibility
@@ -76,7 +77,7 @@ serve(async (req) => {
     let extractedText = '';
 
     try {
-      console.log("Attempting PDF text extraction with pdf.js...");
+      console.log("Attempting PDF text extraction with advanced positional logic...");
       const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
       const pdfDocument = await loadingTask.promise;
       console.log(`PDF loaded. Number of pages: ${pdfDocument.numPages}`);
@@ -84,21 +85,58 @@ serve(async (req) => {
       for (let i = 1; i <= pdfDocument.numPages; i++) {
         const page = await pdfDocument.getPage(i);
         const textContent = await page.getTextContent();
-        
-        textContent.items.forEach((item: any) => { // item is an object with 'str' property
-          extractedText += item.str; // Append raw string from item
-          if (!item.str.endsWith(' ')) { // Add a space if item doesn't end with one, to separate words
-            extractedText += " ";
-          }
+        const items = textContent.items as any[];
+
+        if (items.length === 0) {
+            if (typeof page.cleanup === 'function') {
+                page.cleanup();
+            }
+            continue; // Skip empty pages
+        }
+
+        // A more sophisticated extraction that respects text position
+        // Group text items into lines based on their vertical position (y-coordinate)
+        const lines: { [y: number]: any[] } = {};
+        items.forEach(item => {
+            // Round the y-coordinate to group items on the same line, allowing for small variations
+            const y = Math.round(item.transform[5]); 
+            if (!lines[y]) {
+                lines[y] = [];
+            }
+            lines[y].push(item);
         });
-        extractedText += "\n"; // Newline after each page's content
+
+        // Get the y-coordinates and sort them to process lines from top to bottom
+        const sortedYCoords = Object.keys(lines).map(parseFloat).sort((a, b) => b - a);
+
+        // For each line, sort its items by x-coordinate and join their text
+        sortedYCoords.forEach(y => {
+            const lineItems = lines[y];
+            lineItems.sort((a, b) => a.transform[4] - b.transform[4]); // Sort by x-coordinate
+            
+            let lineText = "";
+            let lastX = -1;
+            let lastWidth = 0;
+
+            lineItems.forEach(item => {
+                // Add a space if there's a significant gap between text chunks on the same line
+                if (lastX !== -1 && item.transform[4] > lastX + lastWidth + 2) { // 2px tolerance
+                    lineText += " ";
+                }
+                lineText += item.str;
+                lastX = item.transform[4];
+                lastWidth = item.width;
+            });
+
+            extractedText += lineText + '\n';
+        });
         
         // Attempt to clean up page resources if the method exists
         if (typeof page.cleanup === 'function') {
           page.cleanup();
         }
       }
-      console.log("pdf.js extraction complete. Raw text length:", extractedText.length);
+      console.log("Advanced extraction complete. Raw text length:", extractedText.length);
     } catch (pdfParseError) {
       console.error('Error during pdf.js parsing:', pdfParseError);
       // Fallback to previous method or return error message if pdf.js fails critically
