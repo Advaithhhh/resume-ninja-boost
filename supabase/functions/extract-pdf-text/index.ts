@@ -1,14 +1,5 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-// Import pdf.js library from esm.sh CDN for Deno compatibility
-import * as pdfjsLib from "https://esm.sh/pdfjs-dist@3.11.174/legacy/build/pdf.min.mjs";
-
-// Set the workerSrc for pdf.js. This is crucial.
-// Using the esm.sh provided worker.
-if (pdfjsLib.GlobalWorkerOptions) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://esm.sh/pdfjs-dist@3.11.174/legacy/build/pdf.worker.min.mjs";
-}
-
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -70,123 +61,52 @@ serve(async (req) => {
     if (!base64Pdf) {
       throw new Error("No base64Pdf provided in the request body.");
     }
-
-    const pdfBytes = Uint8Array.from(atob(base64Pdf), c => c.charCodeAt(0));
     
     let extractedText = '';
 
-    // Step 1: Attempt advanced text extraction first
+    // Step 1: Directly use OCR for text extraction
+    console.log(`Starting OCR.space extraction...`);
     try {
-      console.log("Attempting PDF text extraction with advanced positional logic...");
-      const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
-      const pdfDocument = await loadingTask.promise;
-      console.log(`PDF loaded. Number of pages: ${pdfDocument.numPages}`);
-
-      for (let i = 1; i <= pdfDocument.numPages; i++) {
-        const page = await pdfDocument.getPage(i);
-        const textContent = await page.getTextContent();
-        const items = textContent.items as any[];
-
-        if (items.length === 0) {
-            if (typeof page.cleanup === 'function') {
-                page.cleanup();
-            }
-            continue; // Skip empty pages
-        }
-
-        // A more sophisticated extraction that respects text position
-        // Group text items into lines based on their vertical position (y-coordinate)
-        const lines: { [y: number]: any[] } = {};
-        items.forEach(item => {
-            // Round the y-coordinate to group items on the same line, allowing for small variations
-            const y = Math.round(item.transform[5]); 
-            if (!lines[y]) {
-                lines[y] = [];
-            }
-            lines[y].push(item);
-        });
-
-        // Get the y-coordinates and sort them to process lines from top to bottom
-        const sortedYCoords = Object.keys(lines).map(parseFloat).sort((a, b) => b - a);
-
-        // For each line, sort its items by x-coordinate and join their text
-        sortedYCoords.forEach(y => {
-            const lineItems = lines[y];
-            lineItems.sort((a, b) => a.transform[4] - b.transform[4]); // Sort by x-coordinate
-            
-            let lineText = "";
-            let lastX = -1;
-            let lastWidth = 0;
-
-            lineItems.forEach(item => {
-                // Add a space if there's a significant gap between text chunks on the same line
-                if (lastX !== -1 && item.transform[4] > lastX + lastWidth + 2) { // 2px tolerance
-                    lineText += " ";
-                }
-                lineText += item.str;
-                lastX = item.transform[4];
-                lastWidth = item.width;
-            });
-
-            extractedText += lineText + '\n';
-        });
-        
-        // Attempt to clean up page resources if the method exists
-        if (typeof page.cleanup === 'function') {
-          page.cleanup();
-        }
+      const ocrApiKey = 'helloworld'; // Free public API key for ocr.space
+      const formData = new FormData();
+      // The API can take the PDF directly as a base64 string
+      formData.append('base64Image', `data:application/pdf;base64,${base64Pdf}`);
+      formData.append('apikey', ocrApiKey);
+      formData.append('isOverlayRequired', 'false');
+      formData.append('detectOrientation', 'true');
+      
+      const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!ocrResponse.ok) {
+        throw new Error(`OCR.space API error: ${ocrResponse.status} ${ocrResponse.statusText}`);
       }
-      console.log("Advanced extraction complete. Raw text length:", extractedText.length);
-    } catch (pdfParseError) {
-      console.error('Error during pdf.js parsing:', pdfParseError);
-      extractedText = ""; // Ensure text is empty if parsing fails
-    }
-    
-    extractedText = cleanAndValidateText(extractedText);
-    
-    // Step 2: If text is insufficient, fall back to OCR
-    if (!extractedText || extractedText.length < 100) {
-      console.log(`Initial text extraction insufficient (${extractedText.length} chars). Falling back to OCR.space...`);
-      try {
-        const ocrApiKey = 'helloworld'; // Free public API key for ocr.space
-        const formData = new FormData();
-        // The API can take the PDF directly as a base64 string
-        formData.append('base64Image', `data:application/pdf;base64,${base64Pdf}`);
-        formData.append('apikey', ocrApiKey);
-        formData.append('isOverlayRequired', 'false');
-        formData.append('detectOrientation', 'true');
-        
-        const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
-          method: 'POST',
-          body: formData,
-        });
-        
-        if (!ocrResponse.ok) {
-          throw new Error(`OCR.space API error: ${ocrResponse.status} ${ocrResponse.statusText}`);
-        }
-        
-        const ocrResult = await ocrResponse.json();
+      
+      const ocrResult = await ocrResponse.json();
 
-        if (ocrResult.IsErroredOnProcessing) {
-          throw new Error(`OCR.space processing error: ${ocrResult.ErrorMessage.join(', ')}`);
-        }
-        
-        if (ocrResult.ParsedResults && ocrResult.ParsedResults.length > 0) {
-          extractedText = ocrResult.ParsedResults.map((r: any) => r.ParsedText).join('\n');
-          console.log("Successfully extracted text via OCR.space. Length:", extractedText.length);
-          extractedText = cleanAndValidateText(extractedText); // Clean the OCR output as well
-        } else {
-          console.log("OCR.space did not return any parsed text.");
-        }
-      } catch (ocrError) {
-        console.error("Error during OCR fallback:", ocrError);
-        // If OCR fails, we'll rely on the (likely poor) initial result or the final error message
+      if (ocrResult.IsErroredOnProcessing) {
+        throw new Error(`OCR.space processing error: ${ocrResult.ErrorMessage.join(', ')}`);
       }
+      
+      if (ocrResult.ParsedResults && ocrResult.ParsedResults.length > 0) {
+        extractedText = ocrResult.ParsedResults.map((r: any) => r.ParsedText).join('\n');
+        console.log("Successfully extracted text via OCR.space. Length:", extractedText.length);
+        extractedText = cleanAndValidateText(extractedText); // Clean the OCR output as well
+      } else {
+        console.log("OCR.space did not return any parsed text.");
+      }
+    } catch (ocrError) {
+      console.error("Error during OCR extraction:", ocrError);
+      // If OCR fails, we'll set a specific error message.
+      extractedText = "Failed to process PDF using OCR. The service may be unavailable or the file could be corrupted.";
     }
 
-    // Step 3: Final validation before returning
+
+    // Step 2: Final validation before returning
     if (!extractedText || extractedText.length < 50) { 
-      extractedText = "Unable to extract sufficient readable text from this PDF. It may be an image-based PDF, password-protected, or use complex encodings. Please ensure your PDF has selectable text or is a clear scan.";
+      extractedText = "Unable to extract sufficient readable text from this PDF using OCR. It may be a very low-quality scan, password-protected, or in an unsupported format.";
     }
 
     console.log('Final extracted text length:', extractedText.length);
@@ -199,7 +119,7 @@ serve(async (req) => {
     console.error('Error in extract-pdf-text function:', error);
     return new Response(JSON.stringify({ 
       error: `Failed to process PDF: ${error.message}`,
-      extractedText: "PDF processing failed. Please ensure your PDF contains selectable text (not scanned images) and is not corrupted."
+      extractedText: "PDF processing failed via OCR. Please ensure your PDF is not corrupted and is a clear scan."
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
