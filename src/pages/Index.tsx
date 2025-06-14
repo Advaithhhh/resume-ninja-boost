@@ -1,3 +1,4 @@
+
 import Navigation from "@/components/Navigation";
 import HeroSection from "@/components/HeroSection";
 import ResumeUpload from "@/components/ResumeUpload";
@@ -9,17 +10,11 @@ import { useState } from "react";
 
 const Index = () => {
   const [resumeContent, setResumeContent] = useState("");
-  const [optimizationResults, setOptimizationResults] = useState<any>(null); // Ensure type consistency
+  const [optimizationResults, setOptimizationResults] = useState(null);
 
   const handleResumeProcessed = (content: string) => {
     setResumeContent(content);
-    // If content is empty, it's a signal to reset everything.
-    // Otherwise, just reset optimization results for the new resume.
-    if (content === "") {
-      setOptimizationResults(null); 
-    } else {
-      setOptimizationResults(null); // Also reset results when a new (non-empty) resume is processed
-    }
+    setOptimizationResults(null); // Reset results when new resume is uploaded
   };
 
   const handleOptimizationComplete = (results: any) => {
@@ -35,12 +30,12 @@ const Index = () => {
       <JobDescriptionInput 
         resumeContent={resumeContent}
         onOptimizationComplete={handleOptimizationComplete}
-        disabled={!resumeContent || resumeContent === ""} // Disable if no resume content
+        disabled={!resumeContent}
       />
       <OptimizationResults 
         results={optimizationResults}
         originalResume={resumeContent}
-        visible={!!optimizationResults && !!resumeContent} // Only visible if results and resume content exist
+        visible={!!optimizationResults}
       />
       <PricingSection />
       
