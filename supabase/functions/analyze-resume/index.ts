@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -67,6 +66,7 @@ ANALYSIS REQUIREMENTS:
 - Calculate realistic percentages based on actual content overlap
 - Provide specific, actionable optimization suggestions
 - Generate professional, ATS-optimized content sections
+- When generating suggestions, if the 'current' field refers to resume content that is poorly formatted or difficult to parse, use a descriptive placeholder like 'Original section has formatting issues' or 'Content difficult to interpret' instead of generic terms such as 'unreadable content'.
 
 Return ONLY valid JSON with this structure:
 {
@@ -118,7 +118,7 @@ ${jobDescription}
 Provide detailed analysis with:
 1. Accurate ATS score based on actual content comparison
 2. Comprehensive keyword analysis (find synonyms and related terms)
-3. Specific improvement suggestions with expected impact
+3. Specific improvement suggestions with expected impact (remember to handle poorly formatted 'current' sections gracefully)
 4. Professional optimized content that matches job requirements
 5. Clear identification of missing critical elements
 
