@@ -36,63 +36,81 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
     }
   }, [results, visible]);
 
-  // Function to clean and format the original resume text for display
+  // Function to powerfully clean and format the original resume text for display
   const cleanOriginalResume = (text: string): string => {
     if (!text) return "Original resume content will appear here";
 
-    // Remove PDF-specific metadata and structure and split lines
-    let lines = text
+    // Pre-cleaning phase: remove the worst artifacts and bracketed structure
+    let working = text;
+
+    // Remove font references and Name/FONT artifacts
+    working = working.replace(/Name\s+\/[A-Z0-9+-]+[^\n]*Font(File\d?)?/gi, '');
+    // Remove coordinate and box/data blocks e.g. [ ... ], ( ... ), << ... >> up to reasonable size
+    working = working.replace(/(\<<[^>]{0,500}\>>)/g, ' ');
+    working = working.replace(/(\[[^\[\]\n]{0,300}\])/g, ' ');
+    working = working.replace(/(\([^\)\n]{0,300}\))/g, ' ');
+    // Remove PDF object/stream/block references, numbers, and PDF opcodes/jargon on their own lines
+    working = working.replace(/^[\d\s.>]+(?:obj|endobj|stream|endstream|xref|trailer|startxref|BT|ET|Tj|TJ)?\s*$/gmi, ' ');
+    working = working.replace(/^[\/<>()[\]{}-]+$/gmi, ' ');
+    working = working.replace(/^%%EOF.*$/gmi, ' ');
+    // Remove lines that are mostly symbols or hex/byte gibberish
+    working = working.replace(/^[a-f0-9\s\[\]<>]{10,}$/gmi, ' ');
+
+    // Now split into lines, filter out lines that are not human readable
+    let lines = working
       .split(/[\r\n]+/)
-      .map(line => line.trim())
-      .filter(Boolean);
+      .map(line => line.replace(/\s{2,}/g, " ").trim())
+      .filter(line => !!line && line.length > 2);
 
-    // Filter out lines that look like PDF artifacts, hex strings, or commands
+    // Further filter: keep only lines with enough English words, or emails/contact, or section headers
+    const MIN_WORDS = 4;
+    const emailRE = /^[\w\.-]+@[\w\.-]+\.\w{2,}$/;
+    const headerRE = new RegExp(
+      `^(${[
+        'EXPERIENCE', 'EDUCATION', 'SKILLS', 'SUMMARY', 'OBJECTIVE',
+        'PROFESSIONAL EXPERIENCE', 'WORK EXPERIENCE', 'TECHNICAL SKILLS',
+        'PROJECTS', 'CERTIFICATIONS', 'ACHIEVEMENTS', 'CONTACT', 'EMAIL',
+        'PROFILE', 'INTERESTS', 'AWARDS', 'EXTRACURRICULAR', 'STRENGTHS'
+      ].join('|')})$`, 'i'
+    );
+
     lines = lines.filter(line => {
-      // Remove lines that:
-      // - are object/stream commands
-      // - are only numbers/hex
-      // - contain PDF commands and non-printable junk
-      if (
-        /^(\d+\s+\d+\s+obj|endobj|stream|endstream|xref|trailer|startxref|BT|ET|Tj|TJ)$/i.test(line) ||
-        /^%?[a-f0-9]{10,}$/i.test(line.replace(/\s/g, "")) ||
-        line.length < 3 ||
-        /^[\/<>()[\]{}]+$/.test(line) ||
-        /^<<.*>>$/.test(line) ||
-        /^%%EOF$/.test(line) ||
-        /^[0-9.\s]+$/.test(line) // just numbers
-      ) return false;
-
-      // Remove lines with a high ratio of non-word characters (e.g. encoding garbage)
-      const nonWordRatio = ((line.length - (line.match(/[a-zA-Z0-9\s]/g) || []).length) / line.length);
-      if (nonWordRatio > 0.6) return false;
-
-      // Try to keep only readable lines with at least 4 letters
-      return (line.match(/[a-zA-Z]/g) || []).length >= 4;
-    });
-
-    if (lines.length === 0) {
-      return "Resume content extracted successfully but may need better formatting. The AI analysis above is based on the full content.";
-    }
-
-    // Join into paragraphs for better display based on common resume section keywords
-    const sectionKeywords = [
-      'EXPERIENCE', 'EDUCATION', 'SKILLS', 'SUMMARY', 'OBJECTIVE',
-      'PROFESSIONAL EXPERIENCE', 'WORK EXPERIENCE', 'TECHNICAL SKILLS',
-      'PROJECTS', 'CERTIFICATIONS', 'ACHIEVEMENTS', 'CONTACT', 'EMAIL'
-    ];
-    let result = "";
-    lines.forEach(line => {
-      const header = sectionKeywords.find(keyword =>
-        new RegExp(`\\b${keyword}\\b`, "i").test(line)
+      const wordCount = (line.match(/[a-zA-Z]{2,}/g) || []).length;
+      return (
+        headerRE.test(line.trim().toUpperCase()) ||
+        emailRE.test(line) ||
+        wordCount >= MIN_WORDS ||
+        (line.length > 40 && /[a-zA-Z]/.test(line))
       );
-      if (header) result += `\n\n${line.trim()}\n`;
-      else result += line.replace(/\s{2,}/g, " ").trim() + " ";
     });
 
-    let cleaned = result.replace(/\s{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+    // Group into paragraphs by blank lines or headers
+    let result = "";
+    let inSection = false;
+    lines.forEach((line, idx) => {
+      if (headerRE.test(line.trim().toUpperCase())) {
+        if (result && !result.endsWith('\n\n')) result += '\n\n';
+        result += line.trim().toUpperCase() + "\n";
+        inSection = true;
+      } else if (emailRE.test(line)) {
+        if (result && !result.endsWith('\n\n')) result += '\n';
+        result += line.trim() + "\n";
+      } else if (inSection) {
+        result += "- " + line.trim() + "\n";
+      } else {
+        result += line.trim() + "\n";
+      }
+    });
 
-    // Final fallback if text still looks too short or unreadable
-    if (cleaned.length < 50 || !/[a-zA-Z]{3,}/.test(cleaned)) {
+    // Clean up extra newlines/whitespace
+    let cleaned = result
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]+/g, " ")
+      .replace(/^\s+|\s+$/g, "")
+      .replace(/\n\s+\n/g, '\n\n');
+
+    // Fallback if nothing good found
+    if (cleaned.split(/\s+/).length < 12 || cleaned.length < 50) {
       return "Resume content extracted successfully but may need better formatting. The AI analysis above is based on the full content.";
     }
 
