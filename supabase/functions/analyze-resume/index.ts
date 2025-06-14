@@ -141,23 +141,29 @@ Be thorough in finding matches - look for synonyms, abbreviations, and related c
     
     console.log('OpenAI response:', analysisText);
     
-    // Try to parse JSON from the response
     try {
-      // Clean the response and extract JSON
       const cleanedResponse = analysisText.replace(/```json\n?|\n?```/g, '').trim();
       const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
       
       if (jsonMatch) {
         const result = JSON.parse(jsonMatch[0]);
         
-        // Validate and ensure proper structure
+        // Validate and ensure proper structure for atsScore
         if (typeof result.atsScore !== 'number' || result.atsScore < 0 || result.atsScore > 100) {
-          console.log('Invalid ATS score, recalculating...');
-          result.atsScore = Math.max(20, Math.min(95, result.atsScore || 45));
+          console.log('ATS score from OpenAI is invalid, missing, or out of range. Defaulting to 0.');
+          result.atsScore = 0; 
         }
+        // Ensure score is clamped between 0 and 100 if it was a number but out of typical range.
+        result.atsScore = Math.max(0, Math.min(100, result.atsScore));
 
-        // Ensure scoreBreakdown exists
-        if (!result.scoreBreakdown) {
+
+        // Ensure scoreBreakdown exists and is based on the (potentially new) atsScore
+        if (!result.scoreBreakdown || 
+            (result.scoreBreakdown.keywordMatch + 
+             result.scoreBreakdown.experienceRelevance + 
+             result.scoreBreakdown.educationMatch + 
+             result.scoreBreakdown.skillsCoverage !== result.atsScore) ) {
+          // If breakdown is missing or doesn't sum up, recalculate based on current atsScore
           result.scoreBreakdown = {
             keywordMatch: Math.round(result.atsScore * 0.4),
             experienceRelevance: Math.round(result.atsScore * 0.25),
@@ -165,7 +171,7 @@ Be thorough in finding matches - look for synonyms, abbreviations, and related c
             skillsCoverage: Math.round(result.atsScore * 0.15)
           };
         }
-
+        
         // Ensure all required arrays exist
         result.keywordAnalysis = result.keywordAnalysis || [];
         result.suggestions = result.suggestions || [];
@@ -183,25 +189,21 @@ Be thorough in finding matches - look for synonyms, abbreviations, and related c
       console.error('JSON parse error:', parseError);
       console.log('Attempting fallback analysis...');
       
-      // Intelligent fallback with basic NLP
       const resumeLower = resume.toLowerCase();
       const jobLower = jobDescription.toLowerCase();
       
-      // Extract key terms from job description
       const jobWords = jobLower.split(/\s+/)
         .filter(word => word.length > 2)
         .filter(word => !['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use'].includes(word));
       
-      // Find matches
       const matches = jobWords.filter(word => resumeLower.includes(word));
-      const matchPercentage = Math.min((matches.length / Math.max(jobWords.length * 0.3, 1)) * 100, 100);
+      const matchPercentage = jobWords.length > 0 ? Math.min((matches.length / Math.max(jobWords.length * 0.3, 1)) * 100, 100) : 0;
       
-      // Calculate intelligent score
-      const baseScore = Math.max(matchPercentage, 15);
+      const baseScore = matchPercentage; // Can be 0
       const educationBonus = (resumeLower.includes('bachelor') || resumeLower.includes('btech') || resumeLower.includes('degree')) ? 10 : 0;
       const experienceBonus = (resumeLower.includes('experience') || resumeLower.includes('worked') || resumeLower.includes('developed')) ? 10 : 0;
       
-      const calculatedScore = Math.min(Math.round(baseScore + educationBonus + experienceBonus), 95);
+      const calculatedScore = Math.max(0, Math.min(Math.round(baseScore + educationBonus + experienceBonus), 100)); // Ensure 0-100 range
       
       const fallbackResult = {
         atsScore: calculatedScore,

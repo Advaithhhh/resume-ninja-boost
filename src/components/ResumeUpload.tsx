@@ -1,8 +1,7 @@
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Upload, FileText, Check, AlertCircle } from "lucide-react";
+import { Upload, FileText, Check, AlertCircle, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -15,6 +14,7 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
   const { toast } = useToast();
 
   const extractTextFromPDF = async (file: File): Promise<string> => {
@@ -111,12 +111,14 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
       input.onchange = (e) => {
         const files = (e.target as HTMLInputElement).files;
         if (files && files[0]) {
+          setFileName(files[0].name);
           handleFileUpload(files[0]);
         }
       };
       input.click();
       return;
     }
+    setFileName(selectedFile.name);
 
     const supportedTypes = getSupportedFileTypes();
     if (!Object.keys(supportedTypes).includes(selectedFile.type) && 
@@ -140,6 +142,7 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
 
     setIsUploading(true);
     setUploadProgress(0);
+    setUploadComplete(false);
 
     try {
       const progressInterval = setInterval(() => {
@@ -194,6 +197,8 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
     } catch (error) {
       setIsUploading(false);
       setUploadProgress(0);
+      setUploadComplete(false);
+      setFileName(null);
       toast({
         title: "Processing Failed",
         description: "Failed to process the file. Please ensure it's a valid document with readable text.",
@@ -204,14 +209,25 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    if (isUploading) return;
     const files = e.dataTransfer.files;
     if (files && files[0]) {
+      setFileName(files[0].name);
       handleFileUpload(files[0]);
     }
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+  };
+
+  const handleUploadDifferentFile = () => {
+    setUploadComplete(false);
+    setUploadProgress(0);
+    setIsUploading(false);
+    setFileName(null);
+    onResumeProcessed(""); // Signal to Index.tsx to clear resume content and results
+    handleFileUpload(); // Open file dialog immediately
   };
 
   return (
@@ -231,30 +247,24 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <Upload className="h-5 w-5 text-primary" />
-                <span>Upload Resume</span>
+                <span>{uploadComplete && fileName ? `Uploaded: ${fileName}` : "Upload Resume"}</span>
               </CardTitle>
               <CardDescription>
-                Drag and drop your resume file or click to browse. Supported formats: PDF, DOCX, DOC, TXT, RTF.
+                {uploadComplete 
+                  ? "Your resume has been processed. You can upload another file below."
+                  : "Drag and drop your resume file or click to browse. Supported formats: PDF, DOCX, DOC, TXT, RTF."
+                }
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div 
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-all cursor-pointer
-                  ${uploadComplete 
-                    ? 'border-green-300 bg-green-50' 
-                    : 'border-gray-300 hover:border-primary hover:bg-blue-50'
-                  }`}
-                onClick={!uploadComplete ? () => handleFileUpload() : undefined}
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-              >
-                {uploadComplete ? (
-                  <div className="animate-scale-in">
-                    <Check className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                    <p className="text-green-700 font-semibold">Resume uploaded and processed!</p>
-                    <p className="text-sm text-green-600 mt-2">Now add your target job description below</p>
-                  </div>
-                ) : (
+              {!uploadComplete && (
+                <div 
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-all cursor-pointer
+                    border-gray-300 hover:border-primary hover:bg-blue-50`}
+                  onClick={!isUploading ? () => handleFileUpload() : undefined}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                >
                   <div>
                     <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <p className="text-gray-600 mb-2">Click to upload or drag and drop</p>
@@ -264,13 +274,30 @@ const ResumeUpload = ({ onResumeProcessed }: ResumeUploadProps) => {
                       <span>Ensure document contains readable text content</span>
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
               
+              {uploadComplete && (
+                <div className="text-center p-8 border-2 border-dashed rounded-lg border-green-300 bg-green-50 animate-scale-in">
+                  <Check className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                  <p className="text-green-700 font-semibold">Resume uploaded and processed!</p>
+                  {fileName && <p className="text-sm text-gray-600 mt-1">File: {fileName}</p>}
+                  <p className="text-sm text-green-600 mt-2">Now add your target job description below or upload a different resume.</p>
+                  <Button 
+                    variant="outline"
+                    className="mt-4"
+                    onClick={handleUploadDifferentFile}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Upload Different Resume
+                  </Button>
+                </div>
+              )}
+
               {isUploading && (
                 <div className="mt-4 animate-fade-in">
                   <Progress value={uploadProgress} className="w-full" />
-                  <p className="text-sm text-gray-600 mt-2">Processing document... {uploadProgress}%</p>
+                  <p className="text-sm text-gray-600 mt-2">Processing {fileName ? `"${fileName}"` : "document"}... {uploadProgress}%</p>
                 </div>
               )}
               
