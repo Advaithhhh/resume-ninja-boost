@@ -29,7 +29,6 @@ function cleanAndValidateText(text: string): string {
   cleanedText = cleanedText.split('\n').map(line => line.trim()).join('\n');
   
   // Stage 3: Remove lines that are likely noise (e.g., consisting mostly of symbols or very short)
-  // This step should come after line trimming and paragraph normalization
   cleanedText = cleanedText.split('\n').filter(line => {
     if (line.length === 0) return true; // Keep blank lines resulting from \n\n paragraph breaks
     const alphaNumericChars = (line.match(/[a-zA-Z0-9]/g) || []).length;
@@ -39,7 +38,6 @@ function cleanAndValidateText(text: string): string {
     // Filter out lines that are very short and mostly non-alphanumeric
     if (totalChars > 0 && totalChars < 5 && alphaNumericRatio < 0.4) return false; 
     // Filter out longer lines that are overwhelmingly non-alphanumeric (e.g., "------------")
-    // but try to keep lines with at least a few alphanumeric chars (e.g. short titles)
     if (totalChars > 10 && alphaNumericRatio < 0.15 && alphaNumericChars < 3) return false; 
     
     return true;
@@ -51,6 +49,77 @@ function cleanAndValidateText(text: string): string {
   return cleanedText;
 }
 
+// Helper function to try OCR extraction for image-like content
+async function tryOCRExtraction(base64File: string, mimeType: string): Promise<string> {
+  // Only attempt OCR for PDFs and image files
+  if (!mimeType.includes('pdf') && !mimeType.includes('image')) {
+    throw new Error('OCR not suitable for this file type');
+  }
+
+  const ocrApiKey = 'helloworld'; // Free public API key for ocr.space
+  const formData = new FormData();
+  
+  // For PDFs, we need to specify the correct format
+  let dataUri = `data:${mimeType};base64,${base64File}`;
+  
+  formData.append('base64Image', dataUri);
+  formData.append('apikey', ocrApiKey);
+  formData.append('isOverlayRequired', 'false');
+  formData.append('detectOrientation', 'true');
+  formData.append('scale', 'true');
+  formData.append('isTable', 'true'); // Better for structured documents
+  
+  const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
+    method: 'POST',
+    body: formData,
+  });
+  
+  if (!ocrResponse.ok) {
+    throw new Error(`OCR.space API error: ${ocrResponse.status} ${ocrResponse.statusText}`);
+  }
+  
+  const ocrResult = await ocrResponse.json();
+
+  if (ocrResult.IsErroredOnProcessing) {
+    throw new Error(`OCR.space processing error: ${ocrResult.ErrorMessage?.join(', ') || 'Unknown error'}`);
+  }
+  
+  if (ocrResult.ParsedResults && ocrResult.ParsedResults.length > 0) {
+    return ocrResult.ParsedResults.map((r: any) => r.ParsedText || '').join('\n');
+  }
+  
+  throw new Error('No text found in OCR results');
+}
+
+// Helper function to extract text from base64 content for text-based files
+function extractTextFromBase64(base64Content: string, mimeType: string): string {
+  try {
+    // Decode base64 to get the actual file content
+    const binaryString = atob(base64Content);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    // For plain text files, just decode as UTF-8
+    if (mimeType === 'text/plain') {
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+    
+    // For other text-based formats, try to extract readable text
+    const textContent = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    
+    // Basic text extraction for simple formats
+    if (textContent && textContent.length > 0) {
+      // Remove null bytes and other control characters
+      return textContent.replace(/\0/g, '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ');
+    }
+    
+    throw new Error('No readable text found');
+  } catch (error) {
+    throw new Error(`Failed to extract text: ${error.message}`);
+  }
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -66,53 +135,80 @@ serve(async (req) => {
     const mimeType = fileType || 'application/octet-stream';
     let extractedText = '';
 
-    // Step 1: Directly use OCR for text extraction
-    console.log(`Starting OCR.space extraction for file type: ${mimeType}...`);
-    try {
-      const ocrApiKey = 'helloworld'; // Free public API key for ocr.space
-      const formData = new FormData();
-      // The API can take the file directly as a base64 string
-      formData.append('base64Image', `data:${mimeType};base64,${base64File}`);
-      formData.append('apikey', ocrApiKey);
-      formData.append('isOverlayRequired', 'false');
-      formData.append('detectOrientation', 'true');
-      
-      const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!ocrResponse.ok) {
-        throw new Error(`OCR.space API error: ${ocrResponse.status} ${ocrResponse.statusText}`);
-      }
-      
-      const ocrResult = await ocrResponse.json();
+    console.log(`Processing file type: ${mimeType}...`);
 
-      if (ocrResult.IsErroredOnProcessing) {
-        throw new Error(`OCR.space processing error: ${ocrResult.ErrorMessage.join(', ')}`);
+    // Strategy 1: For plain text files, extract directly
+    if (mimeType === 'text/plain') {
+      try {
+        extractedText = extractTextFromBase64(base64File, mimeType);
+        console.log(`Successfully extracted text from plain text file. Length: ${extractedText.length}`);
+      } catch (error) {
+        console.error('Error extracting plain text:', error);
+        extractedText = 'Failed to extract text from plain text file.';
       }
-      
-      if (ocrResult.ParsedResults && ocrResult.ParsedResults.length > 0) {
-        extractedText = ocrResult.ParsedResults.map((r: any) => r.ParsedText).join('\n');
-        console.log("Successfully extracted text via OCR.space. Length:", extractedText.length);
-        extractedText = cleanAndValidateText(extractedText); // Clean the OCR output as well
-      } else {
-        console.log("OCR.space did not return any parsed text.");
+    }
+    // Strategy 2: For RTF files, try direct text extraction first
+    else if (mimeType === 'text/rtf' || mimeType === 'application/rtf') {
+      try {
+        const rawText = extractTextFromBase64(base64File, mimeType);
+        // Basic RTF text extraction - remove RTF control codes
+        extractedText = rawText
+          .replace(/\\[a-z]+\d*\s?/gi, ' ') // Remove RTF control words
+          .replace(/[{}]/g, ' ') // Remove braces
+          .replace(/\\\\/g, '\\') // Unescape backslashes
+          .replace(/\\'/g, "'") // Unescape quotes
+          .trim();
+        
+        if (extractedText.length < 50) {
+          throw new Error('Insufficient text extracted');
+        }
+        console.log(`Successfully extracted text from RTF file. Length: ${extractedText.length}`);
+      } catch (error) {
+        console.log('RTF direct extraction failed, trying OCR...');
+        try {
+          extractedText = await tryOCRExtraction(base64File, mimeType);
+          console.log(`Successfully extracted text from RTF via OCR. Length: ${extractedText.length}`);
+        } catch (ocrError) {
+          console.error('RTF OCR extraction failed:', ocrError);
+          extractedText = 'Failed to extract text from RTF file. The file may be corrupted or in an unsupported RTF format.';
+        }
       }
-    } catch (ocrError) {
-      console.error("Error during OCR extraction:", ocrError);
-      // If OCR fails, we'll set a specific error message.
-      extractedText = "Failed to process file using OCR. The service may be unavailable or the file could be corrupted.";
+    }
+    // Strategy 3: For PDFs and other complex documents, use OCR
+    else {
+      try {
+        extractedText = await tryOCRExtraction(base64File, mimeType);
+        console.log(`Successfully extracted text via OCR. Length: ${extractedText.length}`);
+      } catch (ocrError) {
+        console.error('OCR extraction failed:', ocrError);
+        
+        // Fallback: try direct text extraction for unknown formats
+        try {
+          console.log('Trying fallback text extraction...');
+          extractedText = extractTextFromBase64(base64File, mimeType);
+          if (extractedText.length < 20) {
+            throw new Error('Insufficient text extracted');
+          }
+          console.log(`Fallback extraction successful. Length: ${extractedText.length}`);
+        } catch (fallbackError) {
+          console.error('Fallback extraction failed:', fallbackError);
+          extractedText = `Unable to extract text from this ${mimeType} file. The file may be image-based, password-protected, or corrupted. Please try uploading a text-based document or a clearer scan.`;
+        }
+      }
     }
 
+    // Clean the extracted text
+    if (extractedText && !extractedText.includes('Unable to extract') && !extractedText.includes('Failed to extract')) {
+      extractedText = cleanAndValidateText(extractedText);
+    }
 
-    // Step 2: Final validation before returning
-    if (!extractedText || extractedText.length < 50) { 
-      extractedText = "Unable to extract sufficient readable text from this file using OCR. It may be a very low-quality scan, password-protected, or in an unsupported format.";
+    // Final validation
+    if (!extractedText || extractedText.length < 20) { 
+      extractedText = `Unable to extract sufficient readable text from this ${mimeType} file. Please ensure the document contains readable text and try uploading a different format (PDF, DOCX, or TXT work best).`;
     }
 
     console.log('Final extracted text length:', extractedText.length);
-    console.log('First 500 characters of final text:', extractedText.substring(0, 500));
+    console.log('First 200 characters:', extractedText.substring(0, 200));
 
     return new Response(JSON.stringify({ extractedText: extractedText.trim() }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -121,7 +217,7 @@ serve(async (req) => {
     console.error('Error in extract-text function:', error);
     return new Response(JSON.stringify({ 
       error: `Failed to process file: ${error.message}`,
-      extractedText: "File processing failed via OCR. Please ensure your file is not corrupted and is readable."
+      extractedText: "File processing failed. Please ensure your file is a readable document (PDF, DOCX, DOC, TXT, or RTF) and try again."
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
