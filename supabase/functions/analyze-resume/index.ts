@@ -1,3 +1,4 @@
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -16,6 +17,13 @@ serve(async (req) => {
   try {
     const { resume, jobDescription } = await req.json();
 
+    if (!resume || !jobDescription) {
+      return new Response(JSON.stringify({ error: "Missing resume or job description" }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     console.log('Analyzing resume with length:', resume.length);
     console.log('Job description length:', jobDescription.length);
 
@@ -26,7 +34,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o', // Using a more robust model
         messages: [
           {
             role: 'system',
@@ -68,7 +76,7 @@ ANALYSIS REQUIREMENTS:
 - Generate professional, ATS-optimized content sections
 - When generating suggestions, if the 'current' field refers to resume content that is poorly formatted or difficult to parse, use a descriptive placeholder like 'Original section has formatting issues' or 'Content difficult to interpret' instead of generic terms such as 'unreadable content'.
 
-Return ONLY valid JSON with this structure:
+You MUST return ONLY a valid JSON object with this exact structure:
 {
   "atsScore": number (calculated based on methodology above),
   "scoreBreakdown": {
@@ -125,155 +133,77 @@ Provide detailed analysis with:
 Be thorough in finding matches - look for synonyms, abbreviations, and related concepts. Calculate scores based on real overlap between resume and job requirements.`
           }
         ],
-        max_tokens: 3000,
-        temperature: 0.1
+        max_tokens: 4000,
+        temperature: 0.1,
+        response_format: { type: "json_object" } // Enforcing JSON output
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`OpenAI API error: ${response.status} - ${errorText}`);
-      throw new Error(`OpenAI API error: ${response.status}`);
+      throw new Error(`Analysis service failed with status ${response.status}.`);
     }
 
     const data = await response.json();
+    
+    if (!data.choices || data.choices.length === 0 || !data.choices[0].message || !data.choices[0].message.content) {
+      console.error('Invalid OpenAI response structure:', JSON.stringify(data));
+      throw new Error('Analysis service returned an invalid response structure.');
+    }
+    
     const analysisText = data.choices[0].message.content;
     
-    console.log('OpenAI response:', analysisText);
+    console.log('OpenAI response received.');
     
     try {
-      const cleanedResponse = analysisText.replace(/```json\n?|\n?```/g, '').trim();
-      const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+      const result = JSON.parse(analysisText);
       
-      if (jsonMatch) {
-        const result = JSON.parse(jsonMatch[0]);
-        
-        // Validate and ensure proper structure for atsScore
-        if (typeof result.atsScore !== 'number' || result.atsScore < 0 || result.atsScore > 100) {
-          console.log('ATS score from OpenAI is invalid, missing, or out of range. Defaulting to 0.');
-          result.atsScore = 0; 
-        }
-        // Ensure score is clamped between 0 and 100 if it was a number but out of typical range.
-        result.atsScore = Math.max(0, Math.min(100, result.atsScore));
-
-
-        // Ensure scoreBreakdown exists and is based on the (potentially new) atsScore
-        if (!result.scoreBreakdown || 
-            (result.scoreBreakdown.keywordMatch + 
-             result.scoreBreakdown.experienceRelevance + 
-             result.scoreBreakdown.educationMatch + 
-             result.scoreBreakdown.skillsCoverage !== result.atsScore) ) {
-          // If breakdown is missing or doesn't sum up, recalculate based on current atsScore
-          result.scoreBreakdown = {
-            keywordMatch: Math.round(result.atsScore * 0.4),
-            experienceRelevance: Math.round(result.atsScore * 0.25),
-            educationMatch: Math.round(result.atsScore * 0.2),
-            skillsCoverage: Math.round(result.atsScore * 0.15)
-          };
-        }
-        
-        // Ensure all required arrays exist
-        result.keywordAnalysis = result.keywordAnalysis || [];
-        result.suggestions = result.suggestions || [];
-        result.missingElements = result.missingElements || [];
-        
-        console.log('Successfully parsed result with ATS score:', result.atsScore);
-        
-        return new Response(JSON.stringify(result), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      } else {
-        throw new Error('No valid JSON found in response');
+      if (typeof result.atsScore !== 'number' || result.atsScore < 0 || result.atsScore > 100) {
+        console.log('ATS score from OpenAI is invalid, missing, or out of range. Defaulting to 0.');
+        result.atsScore = 0; 
       }
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      console.log('Attempting fallback analysis...');
+      result.atsScore = Math.round(Math.max(0, Math.min(100, result.atsScore)));
+
+      if (!result.scoreBreakdown || typeof result.scoreBreakdown !== 'object') {
+          result.scoreBreakdown = {};
+      }
+      const currentTotal = (result.scoreBreakdown.keywordMatch || 0) + (result.scoreBreakdown.experienceRelevance || 0) + (result.scoreBreakdown.educationMatch || 0) + (result.scoreBreakdown.skillsCoverage || 0);
+
+      if (Math.round(currentTotal) !== result.atsScore) {
+        console.log("Recalculating score breakdown as it doesn't match total ATS score.");
+        result.scoreBreakdown = {
+          keywordMatch: Math.round(result.atsScore * 0.4),
+          experienceRelevance: Math.round(result.atsScore * 0.25),
+          educationMatch: Math.round(result.atsScore * 0.2),
+          skillsCoverage: Math.round(result.atsScore * 0.15)
+        };
+      }
       
-      const resumeLower = resume.toLowerCase();
-      const jobLower = jobDescription.toLowerCase();
+      result.keywordAnalysis = result.keywordAnalysis || [];
+      result.suggestions = result.suggestions || [];
+      result.missingElements = result.missingElements || [];
+      result.optimizedSections = result.optimizedSections || { summary: "", skills: "", experience: "" };
       
-      const jobWords = jobLower.split(/\s+/)
-        .filter(word => word.length > 2)
-        .filter(word => !['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use'].includes(word));
+      console.log('Successfully parsed result with ATS score:', result.atsScore);
       
-      const matches = jobWords.filter(word => resumeLower.includes(word));
-      const matchPercentage = jobWords.length > 0 ? Math.min((matches.length / Math.max(jobWords.length * 0.3, 1)) * 100, 100) : 0;
-      
-      const baseScore = matchPercentage; // Can be 0
-      const educationBonus = (resumeLower.includes('bachelor') || resumeLower.includes('btech') || resumeLower.includes('degree')) ? 10 : 0;
-      const experienceBonus = (resumeLower.includes('experience') || resumeLower.includes('worked') || resumeLower.includes('developed')) ? 10 : 0;
-      
-      const calculatedScore = Math.max(0, Math.min(Math.round(baseScore + educationBonus + experienceBonus), 100)); // Ensure 0-100 range
-      
-      const fallbackResult = {
-        atsScore: calculatedScore,
-        scoreBreakdown: {
-          keywordMatch: Math.round(calculatedScore * 0.4),
-          experienceRelevance: Math.round(calculatedScore * 0.25),
-          educationMatch: Math.round(calculatedScore * 0.2),
-          skillsCoverage: Math.round(calculatedScore * 0.15)
-        },
-        keywordAnalysis: matches.slice(0, 10).map(keyword => ({
-          keyword: keyword,
-          status: "matched",
-          importance: "medium",
-          foundAs: keyword
-        })),
-        suggestions: [
-          { 
-            type: "skill", 
-            priority: "high",
-            current: "Current skill set", 
-            suggested: "Add more job-specific technical skills and certifications", 
-            reason: "Increase keyword density and technical alignment with job requirements",
-            impact: "Could improve score by 10-15 points"
-          },
-          {
-            type: "experience",
-            priority: "medium", 
-            current: "Current experience format",
-            suggested: "Quantify achievements with specific metrics and results",
-            reason: "ATS systems favor measurable accomplishments",
-            impact: "Could improve score by 5-10 points"
-          }
-        ],
-        optimizedSections: {
-          summary: "Results-driven professional with strong technical background and proven track record in delivering high-quality solutions. Experienced in modern technologies and methodologies with focus on continuous improvement and innovation.",
-          skills: "Technical Skills: Modern programming languages, frameworks, and development tools. Soft Skills: Problem-solving, teamwork, communication, project management, analytical thinking.",
-          experience: "• Developed and implemented technical solutions resulting in improved efficiency and performance\n• Collaborated with cross-functional teams to deliver projects on time and within budget\n• Applied best practices and modern methodologies to ensure high-quality deliverables"
-        },
-        missingElements: [
-          "More specific technical skills mentioned in job description",
-          "Quantified achievements and impact metrics",
-          "Industry-specific keywords and terminology"
-        ],
-        rawAnalysis: analysisText
-      };
-      
-      console.log('Using intelligent fallback result with score:', calculatedScore);
-      
-      return new Response(JSON.stringify(fallbackResult), {
+      return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.log('Raw text that failed parsing:', analysisText);
+      throw new Error("Failed to parse the JSON response from the analysis service.");
     }
   } catch (error) {
     console.error('Error in analyze-resume function:', error);
     return new Response(JSON.stringify({ 
-      error: error.message,
+      error: `Failed to process analysis request: ${error.message}`,
       atsScore: 0,
-      scoreBreakdown: {
-        keywordMatch: 0,
-        experienceRelevance: 0,
-        educationMatch: 0,
-        skillsCoverage: 0
-      },
+      scoreBreakdown: { keywordMatch: 0, experienceRelevance: 0, educationMatch: 0, skillsCoverage: 0 },
       keywordAnalysis: [],
       suggestions: [],
-      optimizedSections: {
-        summary: "",
-        skills: "",
-        experience: ""
-      },
+      optimizedSections: { summary: "", skills: "", experience: "" },
       missingElements: []
     }), {
       status: 500,
