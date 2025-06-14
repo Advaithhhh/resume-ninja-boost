@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Download, CheckCircle, XCircle, AlertCircle, TrendingUp, Sparkles } from "lucide-react";
+import { Download, CheckCircle, XCircle, AlertCircle, TrendingUp, Sparkles, Target } from "lucide-react";
 import { useState, useEffect } from "react";
 
 interface OptimizationResultsProps {
@@ -53,8 +53,8 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
     switch (status) {
       case "matched":
         return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "added":
-        return <Sparkles className="h-4 w-4 text-blue-500" />;
+      case "partial":
+        return <AlertCircle className="h-4 w-4 text-yellow-500" />;
       case "missing":
         return <XCircle className="h-4 w-4 text-red-500" />;
       default:
@@ -66,13 +66,49 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
     switch (status) {
       case "matched":
         return <Badge variant="secondary" className="bg-green-100 text-green-800">Matched</Badge>;
-      case "added":
-        return <Badge variant="secondary" className="bg-blue-100 text-blue-800">Added</Badge>;
+      case "partial":
+        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">Partial</Badge>;
       case "missing":
         return <Badge variant="secondary" className="bg-red-100 text-red-800">Missing</Badge>;
       default:
         return <Badge variant="secondary">Unknown</Badge>;
     }
+  };
+
+  const downloadOptimizedResume = () => {
+    if (!results?.optimizedSections) return;
+    
+    const optimizedContent = `
+OPTIMIZED RESUME - ATS READY
+
+PROFESSIONAL SUMMARY
+${results.optimizedSections.summary}
+
+TECHNICAL SKILLS
+${results.optimizedSections.skills}
+
+PROFESSIONAL EXPERIENCE
+${results.optimizedSections.experience}
+
+---
+ATS OPTIMIZATION REPORT
+• Overall ATS Score: ${results.atsScore}%
+• Keyword Matches: ${results.keywordAnalysis?.filter((k: any) => k.status === 'matched').length || 0}
+• Missing Keywords: ${results.keywordAnalysis?.filter((k: any) => k.status === 'missing').length || 0}
+• Optimization Suggestions: ${results.suggestions?.length || 0}
+
+This resume has been optimized for Applicant Tracking Systems (ATS) and includes relevant keywords from your target job description.
+    `.trim();
+
+    const blob = new Blob([optimizedContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'optimized-resume-ats-ready.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   if (!visible || !results) {
@@ -97,23 +133,23 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
-            Optimization Results
+            Intelligent ATS Analysis Results
           </h2>
           <p className="text-lg text-gray-600">
-            Your resume has been analyzed and optimized for ATS compatibility
+            AI-powered analysis of your resume against job requirements
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
+        <div className="grid lg:grid-cols-2 gap-8 mb-8">
           {/* ATS Score */}
-          <Card className="lg:col-span-1 shadow-lg">
+          <Card className="shadow-lg">
             <CardHeader className="text-center">
               <CardTitle className="flex items-center justify-center space-x-2">
                 <TrendingUp className="h-5 w-5 text-primary" />
-                <span>ATS Score</span>
+                <span>Intelligent ATS Score</span>
               </CardTitle>
               <CardDescription>
-                How well your resume matches the job requirements
+                AI-calculated score based on job requirements matching
               </CardDescription>
             </CardHeader>
             <CardContent className="text-center">
@@ -145,7 +181,7 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
                     <div className={`text-3xl font-bold ${getScoreColor(atsScore)}`}>
                       {atsScore}%
                     </div>
-                    <div className="text-sm text-gray-500">Score</div>
+                    <div className="text-sm text-gray-500">ATS Score</div>
                   </div>
                 </div>
               </div>
@@ -153,45 +189,97 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
                 variant="secondary" 
                 className={`bg-gradient-to-r ${getScoreGradient(atsScore)} text-white`}
               >
-                {atsScore >= 80 ? "Excellent" : atsScore >= 60 ? "Good" : "Needs Improvement"}
+                {atsScore >= 80 ? "Excellent Match" : atsScore >= 60 ? "Good Match" : "Needs Optimization"}
               </Badge>
             </CardContent>
           </Card>
 
-          {/* Keyword Analysis */}
-          <Card className="lg:col-span-2 shadow-lg">
+          {/* Score Breakdown */}
+          <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle>Keyword Match Analysis</CardTitle>
+              <CardTitle className="flex items-center space-x-2">
+                <Target className="h-5 w-5 text-primary" />
+                <span>Score Breakdown</span>
+              </CardTitle>
               <CardDescription>
-                Track how your resume aligns with job requirements
+                Detailed analysis of scoring components
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="grid sm:grid-cols-2 gap-4 max-h-80 overflow-y-auto">
-                {results.keywordAnalysis?.map((item: any, index: number) => (
-                  <div 
-                    key={index}
-                    className="flex items-center justify-between p-3 rounded-lg border bg-white hover:shadow-sm transition-shadow"
-                  >
-                    <span className="font-medium text-gray-900">{item.keyword}</span>
-                    <div className="flex items-center space-x-2">
-                      {getStatusIcon(item.status)}
-                      {getStatusBadge(item.status)}
+            <CardContent className="space-y-4">
+              {results.scoreBreakdown && (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Keyword Match (40%)</span>
+                      <span className="font-semibold">{results.scoreBreakdown.keywordMatch}/40</span>
                     </div>
+                    <Progress value={(results.scoreBreakdown.keywordMatch / 40) * 100} className="h-2" />
                   </div>
-                )) || (
-                  <div className="col-span-2 text-center text-gray-500 py-8">
-                    <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-                    <p>No keyword analysis available</p>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Experience Relevance (25%)</span>
+                      <span className="font-semibold">{results.scoreBreakdown.experienceRelevance}/25</span>
+                    </div>
+                    <Progress value={(results.scoreBreakdown.experienceRelevance / 25) * 100} className="h-2" />
                   </div>
-                )}
-              </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Education Match (20%)</span>
+                      <span className="font-semibold">{results.scoreBreakdown.educationMatch}/20</span>
+                    </div>
+                    <Progress value={(results.scoreBreakdown.educationMatch / 20) * 100} className="h-2" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Skills Coverage (15%)</span>
+                      <span className="font-semibold">{results.scoreBreakdown.skillsCoverage}/15</span>
+                    </div>
+                    <Progress value={(results.scoreBreakdown.skillsCoverage / 15) * 100} className="h-2" />
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
 
+        {/* Keyword Analysis */}
+        <Card className="shadow-lg mb-8">
+          <CardHeader>
+            <CardTitle>Intelligent Keyword Analysis</CardTitle>
+            <CardDescription>
+              AI-powered matching including synonyms and semantic understanding
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
+              {results.keywordAnalysis?.map((item: any, index: number) => (
+                <div 
+                  key={index}
+                  className="flex items-center justify-between p-3 rounded-lg border bg-white hover:shadow-sm transition-shadow"
+                >
+                  <div className="flex-1">
+                    <span className="font-medium text-gray-900">{item.keyword}</span>
+                    {item.foundAs && item.foundAs !== item.keyword && (
+                      <p className="text-xs text-gray-500 mt-1">Found as: "{item.foundAs}"</p>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-2 ml-2">
+                    {getStatusIcon(item.status)}
+                    {getStatusBadge(item.status)}
+                  </div>
+                </div>
+              )) || (
+                <div className="col-span-3 text-center text-gray-500 py-8">
+                  <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                  <p>No keyword analysis available</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Resume Comparison */}
-        <div className="mt-12 grid md:grid-cols-2 gap-8">
+        <div className="grid md:grid-cols-2 gap-8 mb-8">
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="text-gray-600">Original Resume</CardTitle>
@@ -209,7 +297,7 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
             <CardHeader>
               <CardTitle className="text-primary flex items-center space-x-2">
                 <CheckCircle className="h-5 w-5" />
-                <span>Optimized Resume</span>
+                <span>AI-Optimized Resume</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -235,17 +323,11 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
                           <p className="whitespace-pre-wrap">{results.optimizedSections.experience}</p>
                         </div>
                       )}
-                      {results.rawAnalysis && (
-                        <div>
-                          <h4 className="font-semibold mb-2 text-primary">AI Analysis</h4>
-                          <p className="whitespace-pre-wrap text-xs">{results.rawAnalysis}</p>
-                        </div>
-                      )}
                     </>
                   ) : (
                     <div className="text-center text-gray-500 py-8">
                       <Sparkles className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-                      <p>Optimized content will appear here</p>
+                      <p>AI-optimized content will appear here</p>
                     </div>
                   )}
                 </div>
@@ -254,26 +336,34 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
           </Card>
         </div>
 
-        {/* Suggestions */}
+        {/* AI Suggestions */}
         {results.suggestions && results.suggestions.length > 0 && (
-          <Card className="mt-8 shadow-lg">
+          <Card className="shadow-lg mb-8">
             <CardHeader>
-              <CardTitle>Optimization Suggestions</CardTitle>
+              <CardTitle>AI-Powered Optimization Suggestions</CardTitle>
               <CardDescription>
-                Key improvements to boost your ATS score
+                Intelligent recommendations to improve your ATS score
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {results.suggestions.map((suggestion: any, index: number) => (
-                  <div key={index} className="p-4 border rounded-lg bg-blue-50">
+                  <div key={index} className={`p-4 border rounded-lg ${suggestion.priority === 'high' ? 'bg-red-50 border-red-200' : suggestion.priority === 'medium' ? 'bg-yellow-50 border-yellow-200' : 'bg-blue-50 border-blue-200'}`}>
                     <div className="flex items-start space-x-3">
-                      <Sparkles className="h-5 w-5 text-blue-500 mt-0.5" />
+                      <Sparkles className={`h-5 w-5 mt-0.5 ${suggestion.priority === 'high' ? 'text-red-500' : suggestion.priority === 'medium' ? 'text-yellow-500' : 'text-blue-500'}`} />
                       <div className="flex-1">
-                        <h4 className="font-semibold text-gray-900 capitalize">{suggestion.type} Enhancement</h4>
-                        <p className="text-sm text-gray-600 mt-1">{suggestion.reason}</p>
+                        <div className="flex items-center space-x-2 mb-1">
+                          <h4 className="font-semibold text-gray-900 capitalize">{suggestion.type} Enhancement</h4>
+                          <Badge variant="outline" className={suggestion.priority === 'high' ? 'border-red-300 text-red-700' : suggestion.priority === 'medium' ? 'border-yellow-300 text-yellow-700' : 'border-blue-300 text-blue-700'}>
+                            {suggestion.priority} priority
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-2">{suggestion.reason}</p>
+                        {suggestion.impact && (
+                          <p className="text-xs font-medium text-green-600 mb-2">Expected Impact: {suggestion.impact}</p>
+                        )}
                         {suggestion.current && suggestion.suggested && (
-                          <div className="mt-2 text-xs">
+                          <div className="text-xs space-y-1">
                             <p><span className="font-medium">Current:</span> {suggestion.current}</p>
                             <p><span className="font-medium">Suggested:</span> {suggestion.suggested}</p>
                           </div>
@@ -287,18 +377,40 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
           </Card>
         )}
 
+        {/* Missing Elements */}
+        {results.missingElements && results.missingElements.length > 0 && (
+          <Card className="shadow-lg mb-8">
+            <CardHeader>
+              <CardTitle className="text-red-600">Critical Missing Elements</CardTitle>
+              <CardDescription>
+                Important requirements from the job description not found in your resume
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {results.missingElements.map((element: string, index: number) => (
+                  <div key={index} className="flex items-center space-x-2 p-2 bg-red-50 rounded">
+                    <XCircle className="h-4 w-4 text-red-500" />
+                    <span className="text-sm text-red-700">{element}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Download Button */}
-        <div className="text-center mt-8">
+        <div className="text-center">
           <Button 
             size="lg"
             className="gradient-primary hover:scale-105 transition-transform shadow-lg"
-            onClick={() => alert('Sign in required to download optimized resume')}
+            onClick={downloadOptimizedResume}
           >
             <Download className="mr-2 h-5 w-5" />
-            Download Optimized Resume
+            Download ATS-Optimized Resume
           </Button>
           <p className="text-sm text-gray-500 mt-2">
-            Sign in to download your optimized resume
+            Download your AI-optimized resume ready for ATS systems
           </p>
         </div>
       </div>
