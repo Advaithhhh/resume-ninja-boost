@@ -15,30 +15,56 @@ serve(async (req) => {
   }
 
   try {
-    const { resume, jobDescription } = await req.json();
+    console.log('=== ANALYZE RESUME FUNCTION START ===');
+    
+    // Check if OpenAI API key is available
+    if (!openAIApiKey) {
+      console.error('CRITICAL: OpenAI API key is not configured');
+      return new Response(JSON.stringify({ 
+        error: "OpenAI API key not configured. Please check your environment variables.",
+        atsScore: 0,
+        scoreBreakdown: { keywordMatch: 0, experienceRelevance: 0, educationMatch: 0, skillsCoverage: 0 },
+        keywordAnalysis: [],
+        suggestions: [],
+        optimizedSections: { summary: "", skills: "", experience: "" },
+        missingElements: []
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const requestBody = await req.json();
+    console.log('Request body keys:', Object.keys(requestBody));
+    
+    const { resume, jobDescription } = requestBody;
 
     if (!resume || !jobDescription) {
+      console.error('Missing required fields:', { 
+        hasResume: !!resume, 
+        hasJobDescription: !!jobDescription,
+        resumeLength: resume?.length || 0,
+        jobDescLength: jobDescription?.length || 0
+      });
       return new Response(JSON.stringify({ error: "Missing resume or job description" }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log('Analyzing resume with length:', resume.length);
-    console.log('Job description length:', jobDescription.length);
+    console.log('Input validation passed:', {
+      resumeLength: resume.length,
+      jobDescriptionLength: jobDescription.length,
+      resumePreview: resume.substring(0, 100) + '...',
+      jobDescPreview: jobDescription.substring(0, 100) + '...'
+    });
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o', // Using a more robust model
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert ATS (Applicant Tracking System) analyzer with deep understanding of resume parsing and job matching. Your task is to provide accurate, intelligent analysis.
+    const openAIRequestBody = {
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert ATS (Applicant Tracking System) analyzer with deep understanding of resume parsing and job matching. Your task is to provide accurate, intelligent analysis.
 
 IMPORTANT EDUCATION MAPPINGS:
 - "BTech", "B.Tech", "Bachelor of Technology" = Bachelor's degree
@@ -112,10 +138,10 @@ You MUST return ONLY a valid JSON object with this exact structure:
     "string (critical missing requirements from job description)"
   ]
 }`
-          },
-          {
-            role: 'user',
-            content: `Analyze this resume against the job description with intelligent matching and accurate scoring.
+        },
+        {
+          role: 'user',
+          content: `Analyze this resume against the job description with intelligent matching and accurate scoring.
 
 RESUME CONTENT:
 ${resume}
@@ -131,47 +157,93 @@ Provide detailed analysis with:
 5. Clear identification of missing critical elements
 
 Be thorough in finding matches - look for synonyms, abbreviations, and related concepts. Calculate scores based on real overlap between resume and job requirements.`
-          }
-        ],
-        max_tokens: 4000,
-        temperature: 0.1,
-        response_format: { type: "json_object" } // Enforcing JSON output
-      }),
+        }
+      ],
+      max_tokens: 4000,
+      temperature: 0.1,
+      response_format: { type: "json_object" }
+    };
+
+    console.log('Making OpenAI API request...');
+    
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(openAIRequestBody),
     });
+
+    console.log('OpenAI response status:', response.status);
+    console.log('OpenAI response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`OpenAI API error: ${response.status} - ${errorText}`);
-      throw new Error(`Analysis service failed with status ${response.status}.`);
+      
+      // Return a structured error response instead of throwing
+      return new Response(JSON.stringify({ 
+        error: `Analysis service failed: ${response.status === 401 ? 'Invalid API key' : 'Service temporarily unavailable'}`,
+        atsScore: 0,
+        scoreBreakdown: { keywordMatch: 0, experienceRelevance: 0, educationMatch: 0, skillsCoverage: 0 },
+        keywordAnalysis: [],
+        suggestions: [],
+        optimizedSections: { summary: "", skills: "", experience: "" },
+        missingElements: []
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const data = await response.json();
+    console.log('OpenAI response received, processing...');
     
     if (!data.choices || data.choices.length === 0 || !data.choices[0].message || !data.choices[0].message.content) {
-      console.error('Invalid OpenAI response structure:', JSON.stringify(data));
-      throw new Error('Analysis service returned an invalid response structure.');
+      console.error('Invalid OpenAI response structure:', JSON.stringify(data, null, 2));
+      return new Response(JSON.stringify({ 
+        error: 'Analysis service returned invalid response',
+        atsScore: 0,
+        scoreBreakdown: { keywordMatch: 0, experienceRelevance: 0, educationMatch: 0, skillsCoverage: 0 },
+        keywordAnalysis: [],
+        suggestions: [],
+        optimizedSections: { summary: "", skills: "", experience: "" },
+        missingElements: []
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
     
     const analysisText = data.choices[0].message.content;
-    
-    console.log('OpenAI response received.');
+    console.log('Raw analysis text length:', analysisText.length);
+    console.log('First 200 chars:', analysisText.substring(0, 200));
     
     try {
       const result = JSON.parse(analysisText);
+      console.log('JSON parsing successful');
       
+      // Validate and fix the result
       if (typeof result.atsScore !== 'number' || result.atsScore < 0 || result.atsScore > 100) {
-        console.log('ATS score from OpenAI is invalid, missing, or out of range. Defaulting to 0.');
+        console.log('Invalid ATS score, defaulting to 0');
         result.atsScore = 0; 
       }
       result.atsScore = Math.round(Math.max(0, Math.min(100, result.atsScore)));
 
+      // Ensure scoreBreakdown exists and is valid
       if (!result.scoreBreakdown || typeof result.scoreBreakdown !== 'object') {
-          result.scoreBreakdown = {};
+        result.scoreBreakdown = {};
       }
-      const currentTotal = (result.scoreBreakdown.keywordMatch || 0) + (result.scoreBreakdown.experienceRelevance || 0) + (result.scoreBreakdown.educationMatch || 0) + (result.scoreBreakdown.skillsCoverage || 0);
+      
+      // Validate scoreBreakdown totals
+      const currentTotal = (result.scoreBreakdown.keywordMatch || 0) + 
+                          (result.scoreBreakdown.experienceRelevance || 0) + 
+                          (result.scoreBreakdown.educationMatch || 0) + 
+                          (result.scoreBreakdown.skillsCoverage || 0);
 
-      if (Math.round(currentTotal) !== result.atsScore) {
-        console.log("Recalculating score breakdown as it doesn't match total ATS score.");
+      if (Math.abs(currentTotal - result.atsScore) > 2) {
+        console.log("Recalculating score breakdown to match total ATS score");
         result.scoreBreakdown = {
           keywordMatch: Math.round(result.atsScore * 0.4),
           experienceRelevance: Math.round(result.atsScore * 0.25),
@@ -180,25 +252,48 @@ Be thorough in finding matches - look for synonyms, abbreviations, and related c
         };
       }
       
+      // Ensure all required fields exist
       result.keywordAnalysis = result.keywordAnalysis || [];
       result.suggestions = result.suggestions || [];
       result.missingElements = result.missingElements || [];
-      result.optimizedSections = result.optimizedSections || { summary: "", skills: "", experience: "" };
+      result.optimizedSections = result.optimizedSections || { 
+        summary: "", 
+        skills: "", 
+        experience: "" 
+      };
       
-      console.log('Successfully parsed result with ATS score:', result.atsScore);
+      console.log('Final result validation complete, ATS score:', result.atsScore);
       
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+      
     } catch (parseError) {
       console.error('JSON parse error:', parseError);
-      console.log('Raw text that failed parsing:', analysisText);
-      throw new Error("Failed to parse the JSON response from the analysis service.");
+      console.log('Failed to parse text:', analysisText);
+      
+      return new Response(JSON.stringify({ 
+        error: "Failed to parse analysis results",
+        atsScore: 0,
+        scoreBreakdown: { keywordMatch: 0, experienceRelevance: 0, educationMatch: 0, skillsCoverage: 0 },
+        keywordAnalysis: [],
+        suggestions: [],
+        optimizedSections: { summary: "", skills: "", experience: "" },
+        missingElements: []
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
+    
   } catch (error) {
-    console.error('Error in analyze-resume function:', error);
+    console.error('=== CRITICAL ERROR IN ANALYZE FUNCTION ===');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
     return new Response(JSON.stringify({ 
-      error: `Failed to process analysis request: ${error.message}`,
+      error: `Function error: ${error.message}`,
       atsScore: 0,
       scoreBreakdown: { keywordMatch: 0, experienceRelevance: 0, educationMatch: 0, skillsCoverage: 0 },
       keywordAnalysis: [],
