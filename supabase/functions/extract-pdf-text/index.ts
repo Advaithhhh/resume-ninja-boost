@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // Import pdf.js library from esm.sh CDN for Deno compatibility
@@ -18,16 +17,46 @@ const corsHeaders = {
 
 // Helper function to clean and validate extracted text
 function cleanAndValidateText(text: string): string {
-  return text
-    .replace(/\s+/g, ' ') // Normalize whitespace
-    .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Keep only printable ASCII and common whitespace
-    .replace(/\b(?:obj|endobj|stream|endstream|xref|trailer|startxref|%%EOF)\b/gi, ' ')
-    .replace(/\b\d+\s+\d+\s+(?:obj|R)\b/gi, ' ')
-    .replace(/<<[^>]*>>/g, ' ')
-    .replace(/\/[A-Za-z0-9_]+(?:\s|$)/g, ' ') // Remove PDF names/commands like /Font /Width etc.
-    .replace(/BT\b|ET\b|Tj\b|TJ\b|Tf\b|Td\b|Tm\b|Tc\b|Tw\b|Ts\b|Tz\b/g, ' ') // Remove PDF text operators
-    .replace(/\s+/g, ' ')
-    .trim();
+  let cleanedText = text;
+
+  // Stage 1: Remove non-printable/control characters (except common whitespace) and specific PDF artifacts
+  cleanedText = cleanedText.replace(/[^\x20-\x7E\n\r\t]/g, ' '); // Keep printable ASCII & tab, CR, LF. Replace others with space.
+  cleanedText = cleanedText.replace(/\b(?:obj|endobj|stream|endstream|xref|trailer|startxref|%%EOF)\b/gi, ' ');
+  cleanedText = cleanedText.replace(/\b\d+\s+\d+\s+(?:obj|R)\b/gi, ' ');
+  cleanedText = cleanedText.replace(/<<.*?>>/g, ' '); // Non-greedy match for dictionaries
+  cleanedText = cleanedText.replace(/\/[A-Za-z0-9_]+(?:\s|$)/g, ' '); // PDF names like /Font
+  cleanedText = cleanedText.replace(/\b(?:BT|ET|Tj|TJ|Tf|Td|Tm|Tc|Tw|Ts|Tz)\b/g, ' '); // PDF text operators
+
+  // Stage 2: Normalize whitespace carefully to preserve structure
+  cleanedText = cleanedText.replace(/[\t\f\v ]+/g, ' '); // Collapse multiple horizontal spaces to one
+  cleanedText = cleanedText.replace(/ \n/g, '\n');     // Remove space before newline
+  cleanedText = cleanedText.replace(/\n /g, '\n');     // Remove space after newline
+  cleanedText = cleanedText.replace(/\n{3,}/g, '\n\n'); // Limit consecutive newlines to two (paragraph break)
+  
+  // Remove leading/trailing whitespace from each line (after major newline normalization)
+  cleanedText = cleanedText.split('\n').map(line => line.trim()).join('\n');
+  
+  // Stage 3: Remove lines that are likely noise (e.g., consisting mostly of symbols or very short)
+  // This step should come after line trimming and paragraph normalization
+  cleanedText = cleanedText.split('\n').filter(line => {
+    if (line.length === 0) return true; // Keep blank lines resulting from \n\n paragraph breaks
+    const alphaNumericChars = (line.match(/[a-zA-Z0-9]/g) || []).length;
+    const totalChars = line.length;
+    const alphaNumericRatio = totalChars > 0 ? alphaNumericChars / totalChars : 0;
+
+    // Filter out lines that are very short and mostly non-alphanumeric
+    if (totalChars > 0 && totalChars < 5 && alphaNumericRatio < 0.4) return false; 
+    // Filter out longer lines that are overwhelmingly non-alphanumeric (e.g., "------------")
+    // but try to keep lines with at least a few alphanumeric chars (e.g. short titles)
+    if (totalChars > 10 && alphaNumericRatio < 0.15 && alphaNumericChars < 3) return false; 
+    
+    return true;
+  }).join('\n');
+
+  // Final overall trim
+  cleanedText = cleanedText.trim();
+
+  return cleanedText;
 }
 
 
@@ -57,7 +86,10 @@ serve(async (req) => {
         const textContent = await page.getTextContent();
         
         textContent.items.forEach((item: any) => { // item is an object with 'str' property
-          extractedText += item.str + " ";
+          extractedText += item.str; // Append raw string from item
+          if (!item.str.endsWith(' ')) { // Add a space if item doesn't end with one, to separate words
+            extractedText += " ";
+          }
         });
         extractedText += "\n"; // Newline after each page's content
         
@@ -71,13 +103,12 @@ serve(async (req) => {
       console.error('Error during pdf.js parsing:', pdfParseError);
       // Fallback to previous method or return error message if pdf.js fails critically
       extractedText = "Failed to extract text using advanced PDF parsing. The document might be corrupted or in an unsupported format.";
-      // Optionally, you could try the old regex method here as a last resort.
-      // For now, we'll stick to the error message from pdf.js failure.
     }
     
     extractedText = cleanAndValidateText(extractedText);
     
-    if (!extractedText || extractedText.length < 20) { // Increased minimum length slightly
+    // Increased minimum length threshold
+    if (!extractedText || extractedText.length < 50) { 
       extractedText = "Unable to extract sufficient readable text from this PDF. It may be an image-based PDF, password-protected, or use complex encodings. Please ensure your PDF has selectable text.";
     }
 
@@ -98,4 +129,3 @@ serve(async (req) => {
     });
   }
 });
-
