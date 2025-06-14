@@ -39,60 +39,64 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
   // Function to clean and format the original resume text for display
   const cleanOriginalResume = (text: string): string => {
     if (!text) return "Original resume content will appear here";
-    
-    // Remove PDF-specific metadata and structure
-    let cleaned = text
-      // Remove PDF object references and metadata
-      .replace(/\b\d+\s+\d+\s+(?:obj|R)\b/gi, '')
-      .replace(/<<[^>]*>>/g, '')
-      .replace(/\/[A-Za-z]+(?:\s|$)/g, ' ')
-      .replace(/\bstream\b|\bendstream\b|\bstartxref\b|\bxref\b|\btrailer\b/gi, '')
-      .replace(/%%EOF/g, '')
-      .replace(/\b(?:BT|ET|Tj|TJ|Td|TD|Tm|q|Q|cm|re|W|n|f|F|S|s|B|b|W\*|n\*)\b/g, '')
-      
-      // Remove coordinate and numeric sequences that are PDF positioning
-      .replace(/\b\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\b/g, '')
-      .replace(/\b\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\b/g, '')
-      
-      // Remove isolated numbers and coordinates
-      .replace(/\b\d{3,}\b/g, '')
-      .replace(/\b\d+\.\d+\b/g, '')
-      
-      // Clean up special characters and encoding artifacts
-      .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
-      .replace(/\s+/g, ' ')
-      
-      // Remove common PDF artifacts
-      .replace(/\b[a-f0-9]{8,}\b/gi, '')
-      .replace(/\([^)]*\)\s*Tj/g, '')
-      .replace(/\[[^\]]*\]\s*TJ/g, '')
-      
-      // Clean up whitespace
-      .trim();
-    
-    // If the cleaned text is too short or seems to be mostly artifacts, return a message
-    if (cleaned.length < 50 || !/[a-zA-Z]{3,}/.test(cleaned)) {
+
+    // Remove PDF-specific metadata and structure and split lines
+    let lines = text
+      .split(/[\r\n]+/)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    // Filter out lines that look like PDF artifacts, hex strings, or commands
+    lines = lines.filter(line => {
+      // Remove lines that:
+      // - are object/stream commands
+      // - are only numbers/hex
+      // - contain PDF commands and non-printable junk
+      if (
+        /^(\d+\s+\d+\s+obj|endobj|stream|endstream|xref|trailer|startxref|BT|ET|Tj|TJ)$/i.test(line) ||
+        /^%?[a-f0-9]{10,}$/i.test(line.replace(/\s/g, "")) ||
+        line.length < 3 ||
+        /^[\/<>()[\]{}]+$/.test(line) ||
+        /^<<.*>>$/.test(line) ||
+        /^%%EOF$/.test(line) ||
+        /^[0-9.\s]+$/.test(line) // just numbers
+      ) return false;
+
+      // Remove lines with a high ratio of non-word characters (e.g. encoding garbage)
+      const nonWordRatio = ((line.length - (line.match(/[a-zA-Z0-9\s]/g) || []).length) / line.length);
+      if (nonWordRatio > 0.6) return false;
+
+      // Try to keep only readable lines with at least 4 letters
+      return (line.match(/[a-zA-Z]/g) || []).length >= 4;
+    });
+
+    if (lines.length === 0) {
       return "Resume content extracted successfully but may need better formatting. The AI analysis above is based on the full content.";
     }
-    
-    // Format the text with basic structure
-    const lines = cleaned.split(/\s+/).filter(word => word.length > 0);
-    const formattedText = lines.join(' ');
-    
-    // Add line breaks for better readability at common resume section keywords
+
+    // Join into paragraphs for better display based on common resume section keywords
     const sectionKeywords = [
-      'EXPERIENCE', 'EDUCATION', 'SKILLS', 'SUMMARY', 'OBJECTIVE', 
+      'EXPERIENCE', 'EDUCATION', 'SKILLS', 'SUMMARY', 'OBJECTIVE',
       'PROFESSIONAL EXPERIENCE', 'WORK EXPERIENCE', 'TECHNICAL SKILLS',
       'PROJECTS', 'CERTIFICATIONS', 'ACHIEVEMENTS', 'CONTACT', 'EMAIL'
     ];
-    
-    let formatted = formattedText;
-    sectionKeywords.forEach(keyword => {
-      const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
-      formatted = formatted.replace(regex, `\n\n${keyword}\n`);
+    let result = "";
+    lines.forEach(line => {
+      const header = sectionKeywords.find(keyword =>
+        new RegExp(`\\b${keyword}\\b`, "i").test(line)
+      );
+      if (header) result += `\n\n${line.trim()}\n`;
+      else result += line.replace(/\s{2,}/g, " ").trim() + " ";
     });
-    
-    return formatted.trim() || "Resume content processed successfully. The AI analysis above is based on the extracted content.";
+
+    let cleaned = result.replace(/\s{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+
+    // Final fallback if text still looks too short or unreadable
+    if (cleaned.length < 50 || !/[a-zA-Z]{3,}/.test(cleaned)) {
+      return "Resume content extracted successfully but may need better formatting. The AI analysis above is based on the full content.";
+    }
+
+    return cleaned;
   };
 
   const getScoreColor = (score: number) => {
