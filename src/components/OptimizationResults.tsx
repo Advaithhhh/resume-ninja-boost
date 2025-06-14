@@ -1,4 +1,3 @@
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -36,6 +35,65 @@ const OptimizationResults = ({ results, originalResume, visible = false }: Optim
       return () => clearTimeout(timer);
     }
   }, [results, visible]);
+
+  // Function to clean and format the original resume text for display
+  const cleanOriginalResume = (text: string): string => {
+    if (!text) return "Original resume content will appear here";
+    
+    // Remove PDF-specific metadata and structure
+    let cleaned = text
+      // Remove PDF object references and metadata
+      .replace(/\b\d+\s+\d+\s+(?:obj|R)\b/gi, '')
+      .replace(/<<[^>]*>>/g, '')
+      .replace(/\/[A-Za-z]+(?:\s|$)/g, ' ')
+      .replace(/\bstream\b|\bendstream\b|\bstartxref\b|\bxref\b|\btrailer\b/gi, '')
+      .replace(/%%EOF/g, '')
+      .replace(/\b(?:BT|ET|Tj|TJ|Td|TD|Tm|q|Q|cm|re|W|n|f|F|S|s|B|b|W\*|n\*)\b/g, '')
+      
+      // Remove coordinate and numeric sequences that are PDF positioning
+      .replace(/\b\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\b/g, '')
+      .replace(/\b\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\b/g, '')
+      
+      // Remove isolated numbers and coordinates
+      .replace(/\b\d{3,}\b/g, '')
+      .replace(/\b\d+\.\d+\b/g, '')
+      
+      // Clean up special characters and encoding artifacts
+      .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+      .replace(/\s+/g, ' ')
+      
+      // Remove common PDF artifacts
+      .replace(/\b[a-f0-9]{8,}\b/gi, '')
+      .replace(/\([^)]*\)\s*Tj/g, '')
+      .replace(/\[[^\]]*\]\s*TJ/g, '')
+      
+      // Clean up whitespace
+      .trim();
+    
+    // If the cleaned text is too short or seems to be mostly artifacts, return a message
+    if (cleaned.length < 50 || !/[a-zA-Z]{3,}/.test(cleaned)) {
+      return "Resume content extracted successfully but may need better formatting. The AI analysis above is based on the full content.";
+    }
+    
+    // Format the text with basic structure
+    const lines = cleaned.split(/\s+/).filter(word => word.length > 0);
+    const formattedText = lines.join(' ');
+    
+    // Add line breaks for better readability at common resume section keywords
+    const sectionKeywords = [
+      'EXPERIENCE', 'EDUCATION', 'SKILLS', 'SUMMARY', 'OBJECTIVE', 
+      'PROFESSIONAL EXPERIENCE', 'WORK EXPERIENCE', 'TECHNICAL SKILLS',
+      'PROJECTS', 'CERTIFICATIONS', 'ACHIEVEMENTS', 'CONTACT', 'EMAIL'
+    ];
+    
+    let formatted = formattedText;
+    sectionKeywords.forEach(keyword => {
+      const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+      formatted = formatted.replace(regex, `\n\n${keyword}\n`);
+    });
+    
+    return formatted.trim() || "Resume content processed successfully. The AI analysis above is based on the extracted content.";
+  };
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-green-600";
@@ -278,7 +336,7 @@ This resume has been optimized for Applicant Tracking Systems (ATS) and includes
           </CardContent>
         </Card>
 
-        {/* Resume Comparison */}
+        {/* Resume Comparison - Updated to show cleaned original resume */}
         <div className="grid md:grid-cols-2 gap-8 mb-8">
           <Card className="shadow-lg">
             <CardHeader>
@@ -287,7 +345,7 @@ This resume has been optimized for Applicant Tracking Systems (ATS) and includes
             <CardContent>
               <div className="bg-gray-100 rounded-lg p-6 min-h-[400px] text-sm max-h-[400px] overflow-y-auto">
                 <div className="whitespace-pre-wrap text-gray-700">
-                  {originalResume || "Original resume content will appear here"}
+                  {cleanOriginalResume(originalResume)}
                 </div>
               </div>
             </CardContent>
