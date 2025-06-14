@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // Import pdf.js library from esm.sh CDN for Deno compatibility
@@ -76,6 +75,7 @@ serve(async (req) => {
     
     let extractedText = '';
 
+    // Step 1: Attempt advanced text extraction first
     try {
       console.log("Attempting PDF text extraction with advanced positional logic...");
       const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
@@ -139,15 +139,54 @@ serve(async (req) => {
       console.log("Advanced extraction complete. Raw text length:", extractedText.length);
     } catch (pdfParseError) {
       console.error('Error during pdf.js parsing:', pdfParseError);
-      // Fallback to previous method or return error message if pdf.js fails critically
-      extractedText = "Failed to extract text using advanced PDF parsing. The document might be corrupted or in an unsupported format.";
+      extractedText = ""; // Ensure text is empty if parsing fails
     }
     
     extractedText = cleanAndValidateText(extractedText);
     
-    // Increased minimum length threshold
+    // Step 2: If text is insufficient, fall back to OCR
+    if (!extractedText || extractedText.length < 100) {
+      console.log(`Initial text extraction insufficient (${extractedText.length} chars). Falling back to OCR.space...`);
+      try {
+        const ocrApiKey = 'helloworld'; // Free public API key for ocr.space
+        const formData = new FormData();
+        // The API can take the PDF directly as a base64 string
+        formData.append('base64Image', `data:application/pdf;base64,${base64Pdf}`);
+        formData.append('apikey', ocrApiKey);
+        formData.append('isOverlayRequired', 'false');
+        formData.append('detectOrientation', 'true');
+        
+        const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!ocrResponse.ok) {
+          throw new Error(`OCR.space API error: ${ocrResponse.status} ${ocrResponse.statusText}`);
+        }
+        
+        const ocrResult = await ocrResponse.json();
+
+        if (ocrResult.IsErroredOnProcessing) {
+          throw new Error(`OCR.space processing error: ${ocrResult.ErrorMessage.join(', ')}`);
+        }
+        
+        if (ocrResult.ParsedResults && ocrResult.ParsedResults.length > 0) {
+          extractedText = ocrResult.ParsedResults.map((r: any) => r.ParsedText).join('\n');
+          console.log("Successfully extracted text via OCR.space. Length:", extractedText.length);
+          extractedText = cleanAndValidateText(extractedText); // Clean the OCR output as well
+        } else {
+          console.log("OCR.space did not return any parsed text.");
+        }
+      } catch (ocrError) {
+        console.error("Error during OCR fallback:", ocrError);
+        // If OCR fails, we'll rely on the (likely poor) initial result or the final error message
+      }
+    }
+
+    // Step 3: Final validation before returning
     if (!extractedText || extractedText.length < 50) { 
-      extractedText = "Unable to extract sufficient readable text from this PDF. It may be an image-based PDF, password-protected, or use complex encodings. Please ensure your PDF has selectable text.";
+      extractedText = "Unable to extract sufficient readable text from this PDF. It may be an image-based PDF, password-protected, or use complex encodings. Please ensure your PDF has selectable text or is a clear scan.";
     }
 
     console.log('Final extracted text length:', extractedText.length);
